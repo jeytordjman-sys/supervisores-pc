@@ -184,6 +184,14 @@ details summary{cursor:pointer;color:var(--accent);font-weight:500;font-size:.9r
 .missing textarea,.missing input{border-color:var(--late)}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:.9rem}
 .kv span:nth-child(odd){color:var(--muted)}
+.share{display:flex;flex-wrap:wrap;gap:6px}
+.btn.wa{background:#25d366;border-color:#25d366;color:#07301a}
+.btn.wa.outline{background:transparent;color:#1a9e4b;border-color:#25d366}
+.logrow{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;padding:8px 0;border-top:1px solid var(--line);font-size:.9rem}
+.logrow time{color:var(--muted);white-space:nowrap;font-size:.8rem;font-variant-numeric:tabular-nums;padding-top:2px}
+.pinbox{display:flex;gap:8px;align-items:center}
+.pinbox input{letter-spacing:.4em;text-align:center;font-size:1.3rem;max-width:140px}
+.login form.card{text-align:left}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 
@@ -210,7 +218,11 @@ const SEED = () => ({
     {id:6,store:5,sup:2,date:ISO(1),time:"10:00",reason:"Visita de cadência",notes:"Sem visita há 2 meses.",visitId:null},
     {id:7,store:8,sup:2,date:ISO(1),time:"14:00",reason:"Incidente ou reclamação",notes:"Seguimento da reclamação.",visitId:null},
     {id:8,store:6,sup:2,date:ISO(7),time:"11:00",reason:"Visita de cadência",notes:"",visitId:null}],
-  users:[{id:1,name:"Ana Ribeiro",email:"ana.ribeiro@exemplo.pt",role:"sup"},{id:2,name:"Miguel Costa",email:"miguel.costa@exemplo.pt",role:"sup"},{id:9,name:"Sede",email:"sede@exemplo.pt",role:"admin"}],
+  users:[{id:1,name:"Ana Ribeiro",email:"ana.ribeiro@exemplo.pt",phone:"+351 910 000 001",pin:"",role:"sup",active:true},{id:2,name:"Miguel Costa",email:"miguel.costa@exemplo.pt",phone:"+351 910 000 002",pin:"",role:"sup",active:true},{id:9,name:"Sede",email:"sede@exemplo.pt",phone:"",pin:"1234",role:"admin",active:true}],
+  log:[
+    {id:3,at:"2026-10-20T10:58:00",user:1,entity:"visita",action:"Registou visita",detail:"Visita de cadência · 2 não conforme(s) · 2 ação(ões)",store:1},
+    {id:2,at:"2026-10-15T09:40:00",user:2,entity:"visita",action:"Registou visita",detail:"Acompanhamento de ações · 1 não conforme(s) · 1 ação(ões)",store:4},
+    {id:1,at:"2026-10-01T09:00:00",user:9,entity:"config",action:"Alterou configuração",detail:"P&C Cascais · cadência temporária: — → A (até 31/12/2026)",store:3}],
   items:[
     {id:1,label:"Merchandising",action:"Repor a implantação conforme o plano de merchandising em vigor (montras, gôndolas, testers).",days:7,owner:"Responsável loja",active:true},
     {id:2,label:"Limpeza",action:"Limpeza completa da loja (vitrines, espelhos, testers, chão, provador).",days:2,owner:"Responsável loja",active:true},
@@ -258,7 +270,9 @@ const SEED = () => ({
 const KEY="pc-supervisores-proto-v1";
 let S; try{ S = JSON.parse(localStorage.getItem(KEY)||"null"); }catch(e){ S=null; }
 if(!S||!S.stores||!S.reasons||!S.planned||S.settings.maxNoVisit===undefined) S = SEED(); // versão antiga dos dados guardados → repor exemplo
-let UI = { user:null, screen:"lojas", storeId:null, filter:"all", supFilter:"all", actTab:"open", sedeTab:"painel", draft:null, view:"lista", routeSel:null, routeStart:"first", mapSel:null, myPos:null, agView:"hoje", agDate:TODAY, plan:null, planId:null, more:false };
+if(!S.log){ S.log=[]; } // dados guardados antes das contas/histórico → completar
+S.users.forEach(u=>{ if(u.pin===undefined) u.pin=""; if(u.phone===undefined) u.phone=""; if(u.active===undefined) u.active=true; });
+let UI = { user:null, screen:"lojas", storeId:null, filter:"all", supFilter:"all", actTab:"open", sedeTab:"painel", draft:null, view:"lista", routeSel:null, routeStart:"first", mapSel:null, myPos:null, agView:"hoje", agDate:TODAY, plan:null, planId:null, more:false, loginSel:null, signup:null, formErr:"", logUser:"all", logType:"all", logQ:"" };
 try{ const u = JSON.parse(sessionStorage.getItem(KEY+"-ui")||"null"); if(u) UI = {...UI, ...u, draft:null}; }catch(e){}
 const save = () => { try{ localStorage.setItem(KEY, JSON.stringify(S)); sessionStorage.setItem(KEY+"-ui", JSON.stringify({user:UI.user,screen:UI.screen,storeId:UI.storeId,sedeTab:UI.sedeTab})); }catch(e){} };
 
@@ -283,6 +297,42 @@ const effCad = s => (s.tempCad && s.tempUntil && dayOf(s.tempUntil)>=today()) ? 
 const shipLabel = s => s==="in_transit"?"Em trânsito":s==="received"?"Recebida":"Diferença";
 const actLabel = s => s==="open"?"Aberta":s==="in_progress"?"Em curso":"Feita";
 let toastT; const toast = m => { const t=$("#toast"); t.textContent=m; t.classList.add("show"); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove("show"),3500); };
+
+// ---------- histórico (quem fez o quê, quando) ----------
+function logE(action, entity, detail="", store=null){
+  S.log.unshift({id:(S.log[0]?.id||0)+1, at:new Date().toISOString().slice(0,19), user:UI.user, entity, action, detail:String(detail||""), store});
+  if(S.log.length>3000) S.log.length=3000;
+}
+const userName = id => S.users.find(u=>u.id===id)?.name || "—";
+
+// ---------- relatório da visita + envio (WhatsApp / e-mail / partilha) ----------
+function reportText(v){
+  const store=S.stores.find(s=>s.id===v.store)||{}; const u=S.users.find(x=>x.id===v.sup);
+  const acts=S.actions.filter(a=>a.visit===v.id);
+  const lines=S.items.filter(i=>i.active||v.bad.includes(i.id)).map(i=>`${v.bad.includes(i.id)?"❌":"✅"} ${i.label}`).join("\n");
+  const ex=v.extra||{};
+  const extraTxt=[ex.managerPresent&&`Responsável presente: ${ex.managerPresent}`, ex.staff!==""&&ex.staff!=null&&`Colaboradores presentes: ${ex.staff}`, ex.salesFeel&&`Vendas vs objetivo: ${ex.salesFeel}`, ex.promoOk&&`Promoção em vigor: ${ex.promoOk}`, ex.training&&ex.training.length&&`Formação a dar: ${ex.training.join(", ")}`, ex.competition&&`Concorrência: ${ex.competition}`, ex.nextSteps&&`Próximos passos: ${ex.nextSteps}`, ex.followUp&&`Follow-up planeado: ${fmtDate(ex.followUp)}`].filter(Boolean).join("\n");
+  return `*Relatório de visita — ${store.name}*\n${fmtDT(v.at)} · Supervisor: ${u?.name||"—"}\nMotivo: ${v.reason||"—"}${v.rating?`\nAvaliação global: ${"★".repeat(v.rating)}${"☆".repeat(5-v.rating)}`:""}\n\n*Checklist*\n${lines}\n\n${acts.length?`*Ações a realizar*\n${acts.map(a=>`• ${a.title} — prazo ${fmtDate(a.due)} · ${a.owner}\n  ${a.notes}`).join("\n")}`:"✅ Todos os pontos estão conformes. Obrigado!"}${v.comment?`\n\n*Comentário*\n${v.comment}`:""}${extraTxt?`\n\n*Contexto*\n${extraTxt}`:""}${v.photos&&v.photos.length?`\n\n📷 ${v.photos.length} foto(s) na app`:""}`;
+}
+const waUrl = (phone, text) => `https://wa.me/${String(phone||"").replace(/\D/g,"")}?text=${encodeURIComponent(text)}`;
+const mailUrl = (to, subject, body, cc) => `mailto:${encodeURIComponent(to||"")}?${cc?`cc=${encodeURIComponent(cc)}&`:""}subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body.replace(/\*/g,""))}`;
+// Botões de envio: wa.me abre o WhatsApp com o texto já escrito (o utilizador só carrega em enviar); mailto abre o e-mail do telemóvel.
+function shareRow(v){
+  const store=S.stores.find(s=>s.id===v.store)||{}; const me=user()||{}; const txt=reportText(v); const subj=`Relatório de visita — ${store.name} · ${fmtDate(v.at)}`;
+  const a=(cls,href,via,label)=>`<a class="btn sm ${cls}" href="${href}" target="_blank" rel="noreferrer" data-sendvia="${esc(via)}" data-visit="${v.id}">${label}</a>`;
+  return `<div class="share">
+    ${store.phone?a("wa",waUrl(store.phone,txt),"WhatsApp → responsável","📲 WhatsApp → responsável"):""}
+    ${a("wa outline",waUrl("",txt),"WhatsApp","📲 WhatsApp → escolher contacto")}
+    ${me.phone?a("wa outline",waUrl(me.phone,txt),"WhatsApp → para mim","📲 Para o meu WhatsApp"):""}
+    ${store.email?a("outline",mailUrl(store.email,subj,txt,me.email),"e-mail → responsável","✉️ E-mail → responsável (cc eu)"):""}
+    ${me.email?a("outline",mailUrl(me.email,subj,txt),"e-mail → para mim","✉️ Para o meu e-mail"):""}
+    <button class="btn sm ghost" data-copy="${v.id}">📋 Copiar texto</button>
+    ${navigator.share?`<button class="btn sm ghost" data-share="${v.id}">📤 Partilhar…</button>`:""}
+  </div>`;
+}
+function shareGeneric(subject, body, to){
+  return `<div class="share"><a class="btn sm wa" href="${waUrl("",`*${subject}*\n\n${body}`)}" target="_blank" rel="noreferrer">📲 WhatsApp</a><a class="btn sm outline" href="${mailUrl(to||"",subject,body)}" target="_blank" rel="noreferrer">✉️ E-mail</a></div>`;
+}
 
 function summary(s){
   const t=today();
@@ -394,9 +444,10 @@ const I = {
 const root = $("#root");
 function render(){
   save();
+  if(UI.user && !(user()&&user().active)) UI.user=null; // conta apagada/desativada entretanto
   if(!UI.user){ root.innerHTML = Login(); bind(); return; }
   if(UI.screen==="sede" && !isAdmin()) UI.screen="lojas";
-  const tabs = [["lojas","Lojas",I.store],["agenda","Agenda",I.cal],["nova","Visita",I.plus],["acoes","Ações",I.check]].concat(isAdmin()?[["sede","Sede",I.hq]]:[]);
+  const tabs = [["lojas","Lojas",I.store],["agenda","Agenda",I.cal],["nova","Visita",I.plus],["acoes","Ações",I.check]].concat(isAdmin()?[["sede","Bastidor",I.hq]]:[]);
   const active = UI.screen==="loja"?"lojas":UI.screen==="plan"?"agenda":UI.screen;
   const u=user();
   root.innerHTML = `<div class="app">
@@ -409,13 +460,47 @@ function render(){
 function go(screen, storeId){ UI.screen=screen; if(storeId!==undefined) UI.storeId=storeId; if(screen!=="nova") UI.draft=null; window.scrollTo(0,0); render(); }
 
 function Login(){
-  return `<div class="login"><div class="card">
-    <div><span class="mark">P&amp;C</span><h1 style="margin-top:12px">Supervisores</h1><p class="muted">Visitas às lojas · Perfumes &amp; Companhia</p></div>
-    <p class="muted" style="text-align:left">Protótipo para teste: escolha com quem entrar. Os dados são de exemplo e ficam guardados só neste telemóvel/browser.</p>
-    <div class="roles">${S.users.map(u=>`<button class="role" data-login="${u.id}"><span>${esc(u.name)}<br><small>${u.role==="admin"?"Sede · painel, configuração, import":"Supervisor · "+S.stores.filter(s=>s.sup===u.id).length+" lojas"}</small></span><span>›</span></button>`).join("")}</div>
+  const head=`<div><span class="mark">P&amp;C</span><h1 style="margin-top:12px">Supervisores</h1><p class="muted">Visitas às lojas · Perfumes &amp; Companhia</p></div>`;
+  if(UI.signup) return `<div class="login">${Signup(false)}</div>`;
+  const sel=UI.loginSel?S.users.find(u=>u.id===UI.loginSel):null;
+  if(sel) return `<div class="login"><form class="card" data-form="pin">${head}<p style="margin:0">Olá, <b>${esc(sel.name)}</b>. Introduza o seu PIN.</p>
+    <div class="pinbox"><input id="pin" type="password" inputmode="numeric" maxlength="4" autocomplete="off" autofocus aria-label="PIN"><button class="btn" type="submit">Entrar</button></div>
+    ${UI.formErr?`<p class="late-t" style="margin:0">${esc(UI.formErr)}</p>`:""}
+    <button class="btn ghost sm" type="button" data-act="cancellogin">← Outra conta</button></form></div>`;
+  const list=S.users.filter(u=>u.active);
+  return `<div class="login"><div class="card">${head}
+    <p class="muted" style="text-align:left">Escolha a sua conta ou crie uma nova. Cada pessoa vê as suas lojas; o Bastidor (Sede) vê tudo e o histórico de alterações.</p>
+    <div class="roles">${list.map(u=>`<button class="role" data-login="${u.id}"><span>${esc(u.name)}<br><small>${u.role==="admin"?"Sede · bastidor, contas, histórico":"Supervisor · "+S.stores.filter(s=>s.sup===u.id&&s.active).length+" loja(s)"}${u.pin?" · 🔒 PIN":""}</small></span><span>›</span></button>`).join("")}</div>
+    <button class="btn outline" data-act="signup">+ Criar a minha conta</button>
+    <p class="demo">Protótipo: os dados ficam guardados só neste telemóvel/browser. Conta «Sede» de exemplo: PIN 1234.</p>
     <button class="btn ghost sm" data-act="reset">Repor dados de exemplo</button>
   </div></div>`;
 }
+function Signup(adminMode){
+  const d=UI.signup;
+  return `<form data-form="signup" class="card" style="gap:12px;${adminMode?"":"max-width:420px;width:100%"}">
+    <h2>${adminMode?"Nova conta":"Criar a minha conta"}</h2>
+    <label class="field"><span>Nome *</span><input id="su-name" value="${esc(d.name)}" required autocomplete="name"></label>
+    <label class="field"><span>E-mail *</span><input id="su-email" type="email" value="${esc(d.email)}" required autocomplete="email"></label>
+    <label class="field"><span>Telemóvel (WhatsApp)</span><input id="su-phone" type="tel" value="${esc(d.phone)}" placeholder="+351 9…" autocomplete="tel"></label>
+    <div class="grid2"><label class="field"><span>PIN de acesso (4 dígitos, opcional)</span><input id="su-pin" inputmode="numeric" maxlength="4" value="${esc(d.pin)}" placeholder="••••" autocomplete="off"></label>
+      ${adminMode?`<label class="field"><span>Perfil</span><select id="su-role"><option value="sup" ${d.role==="sup"?"selected":""}>Supervisor</option><option value="admin" ${d.role==="admin"?"selected":""}>Sede / bastidor</option></select></label>`
+      :`<div class="field"><span>Perfil</span><div class="muted" style="min-height:44px;display:flex;align-items:center">Supervisor · a Sede atribui-lhe as lojas no Bastidor</div></div>`}</div>
+    ${UI.formErr?`<p class="late-t" style="margin:0">${esc(UI.formErr)}</p>`:""}
+    <div class="inline"><button class="btn" type="submit" style="flex:1">${adminMode?"Criar conta":"Criar conta e entrar"}</button><button class="btn ghost" type="button" data-act="cancelsignup">Cancelar</button></div></form>`;
+}
+function createAccount(adminMode){
+  const d=UI.signup; const name=d.name.trim(), email=d.email.trim().toLowerCase();
+  if(!name||!email){ UI.formErr="Nome e e-mail são obrigatórios."; return render(); }
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ UI.formErr="E-mail inválido."; return render(); }
+  if(S.users.some(u=>u.email.toLowerCase()===email)){ UI.formErr="Já existe uma conta com este e-mail."; return render(); }
+  if(d.pin&&!/^\d{4}$/.test(d.pin)){ UI.formErr="O PIN tem de ter 4 dígitos."; return render(); }
+  const u={id:nextId(S.users),name,email,phone:d.phone.trim(),pin:d.pin,role:adminMode?d.role:"sup",active:true,createdAt:TODAY};
+  S.users.push(u); UI.signup=null; UI.formErr="";
+  if(adminMode){ logE("Criou conta","conta",`${u.name} · ${u.role==="admin"?"Sede":"Supervisor"}`); toast(`Conta de ${u.name} criada`); render(); }
+  else { doLogin(u.id,"Criou a sua conta e entrou"); toast(`Bem-vindo(a), ${u.name}! Peça à Sede para lhe atribuir lojas.`); }
+}
+function doLogin(id, action="Entrou na app"){ UI.user=id; UI.loginSel=null; UI.formErr=""; UI.screen="lojas"; UI.supFilter="all"; logE(action,"conta"); render(); }
 
 function statusChip(s){ return `<span class="status s-${s.status}">${esc(s.statusText)}</span>`; }
 
@@ -437,7 +522,7 @@ function Lojas(){
       <div class="meta"><span>${esc(s.city)}</span><span>·</span><span>Cadência ${s.cadE}${s.tempCad&&s.cadE===s.tempCad?" (temp.)":""}</span><span>·</span><span>Última visita ${s.last?fmtDate(s.last):"—"}${s.lastReason?` · ${esc(s.lastReason)}`:""}</span>${isAdmin()?`<span>·</span><span>${esc(s.supName)}</span>`:""}</div>
       <div class="badges">${s.noVisit&&s.last?`<span class="badge late">⏱ Sem visita há ${s.noVisitDays} dias</span>`:""}${s.open?`<span class="badge ${s.late?"late":""}">${s.open} ação(ões)${s.late?` · ${s.late} em atraso`:""}</span>`:""}${s.alerts.filter(a=>!a.includes("ação")&&!a.startsWith("Sem visita")&&a!=="Nunca visitada").map(a=>`<span class="badge alert">⚠️ ${esc(a)}</span>`).join("")}</div>
     </div><span style="color:var(--muted)">›</span></button><div class="inline" style="margin-top:-6px;padding:0 4px 4px">${navBtn(s,"btn sm ghost")}</div></li>`).join("")}</ul>`
-    : `<p class="muted" style="text-align:center;padding:32px 0">${UI.filter==="all"?"Nenhuma loja atribuída.":"Nada a assinalar. 👍"}</p>`}
+    : `<p class="muted" style="text-align:center;padding:32px 0">${UI.filter==="all"?"Nenhuma loja atribuída. A Sede atribui as lojas no Bastidor → Configuração.":"Nada a assinalar. 👍"}</p>`}
   <p class="demo">Dados de exemplo · protótipo</p>`;
 }
 function myStoresFiltered(){ let l=myStores(); if(isAdmin()&&UI.supFilter!=="all") l=l.filter(s=>String(s.sup)===UI.supFilter); return l; }
@@ -495,7 +580,9 @@ function Loja(){
     ${v.extra?`<div class="kv">${v.extra.managerPresent?`<span>Responsável presente</span><span>${esc(v.extra.managerPresent)}</span>`:""}${v.extra.staff?`<span>Colaboradores presentes</span><span>${v.extra.staff}</span>`:""}${v.extra.salesFeel?`<span>Vendas vs objetivo</span><span>${esc(v.extra.salesFeel)}</span>`:""}${v.extra.promoOk?`<span>Promoção em vigor</span><span>${esc(v.extra.promoOk)}</span>`:""}${v.extra.training&&v.extra.training.length?`<span>Formação a dar</span><span>${esc(v.extra.training.join(", "))}</span>`:""}${v.extra.competition?`<span>Concorrência</span><span>${esc(v.extra.competition)}</span>`:""}${v.extra.nextSteps?`<span>Próximos passos</span><span>${esc(v.extra.nextSteps)}</span>`:""}${v.extra.followUp?`<span>Follow-up</span><span>${fmtDate(v.extra.followUp)}</span>`:""}</div>`:""}
     ${v.photos.length?`<div class="photos">${v.photos.map(p=>`<span class="photo"><img src="${p}" alt=""></span>`).join("")}</div>`:""}
     ${v.lat!=null?`<a href="https://maps.google.com/?q=${v.lat},${v.lng}" target="_blank" rel="noreferrer" style="font-size:.85rem">📍 posição registada</a>`:""}
-    <p class="muted">${v.sent?"Relatório enviado ao responsável":"Relatório não enviado"}</p></div>`; };
+    <p class="${v.sent?"muted":"late-t"}" style="margin:0;font-size:.85rem">${v.sent?`✓ Relatório enviado${v.sentVia&&v.sentVia.length?` · ${v.sentVia.map(x=>`${x.via} ${fmtDT(x.at)}`).join(" · ")}`:""}`:"Relatório ainda não enviado"}</p>
+    ${shareRow(v)}</div>`; };
+  const hist=S.log.filter(x=>x.store===s.id);
   return `<button class="link" data-go="lojas" style="align-self:flex-start;padding-left:0">← Lojas</button>
   <header style="display:flex;flex-direction:column;gap:8px"><h1 style="font-size:1.8rem">${esc(s.name)}</h1>
     <div class="meta" style="align-items:center">${statusChip(s)}<span>${esc(s.city)} · ${esc(s.code)}</span><span>Cadência ${s.cadE} · ${cadDays(s.cadE)} dias${s.tempCad&&s.cadE===s.tempCad?` (temporária até ${fmtDate(s.tempUntil)})`:""}</span></div>
@@ -508,7 +595,7 @@ function Loja(){
   <section class="card ${s.alerts.length?"alert":""}"><h2>Alertas</h2>${s.alerts.length?`<ul style="margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px">${s.alerts.map(a=>`<li>⚠️ ${esc(a)}</li>`).join("")}</ul>`:`<p class="muted">Nada a assinalar.</p>`}</section>
   <section class="card"><div class="row"><h2>Ações abertas</h2><span class="badge">${acts.length}</span></div>
     ${acts.length?acts.map(a=>{const late=dayOf(a.due)<today();return `<div class="row" style="padding:8px 0;border-top:1px solid var(--line)"><div style="min-width:0"><div style="font-weight:500">${esc(a.title)}</div><div class="muted">${esc(a.owner)} · <span class="${late?"late-t":""}">${late?"Atrasada · ":"prazo "}${fmtDate(a.due)}</span> · ${actLabel(a.status)}</div></div><button class="btn sm ${late?"":"outline"}" data-done="${a.id}">Feita ✓</button></div>`;}).join(""):`<p class="muted">Nenhuma ação aberta.</p>`}</section>
-  <section class="card"><h2>Última visita</h2>${vs[0]?visitBlock(vs[0]):`<p class="muted">Ainda sem visitas.</p>`}
+  <section class="card"><h2>Última visita</h2>${vs[0]&&!vs[0].sent?`<div class="hint" style="margin:0">📲 Relatório pronto — envie por WhatsApp ou e-mail com os botões abaixo.</div>`:""}${vs[0]?visitBlock(vs[0]):`<p class="muted">Ainda sem visitas.</p>`}
     ${vs.length>1?`<details><summary>Visitas anteriores (${vs.length-1})</summary><div style="display:flex;flex-direction:column;gap:16px;margin-top:8px">${vs.slice(1).map(visitBlock).join("<hr style='border:0;border-top:1px solid var(--line)'>")}</div></details>`:""}</section>
   <section class="card"><div class="row"><h2>Stock · referências chave</h2><span class="muted">${st.length} ref.</span></div>
     ${!st.length?`<p class="muted">Sem dados de stock (import Sage X3).</p>`:`<h3>Ruturas (${rupt.length})</h3>${rupt.length?`<ul style="margin:0;padding-left:18px;font-size:.9rem">${rupt.map(x=>`<li><b>${esc(x.ref)}</b> ${esc(x.des)}${x.top?" ⭐":""} · última venda ${fmtDate(x.last)}</li>`).join("")}</ul>`:`<p class="muted">Nenhuma.</p>`}
@@ -516,8 +603,10 @@ function Loja(){
   <section class="card"><h2>Envios do armazém · 30 dias</h2>${!sh.length?`<p class="muted">Sem envios nos últimos 30 dias.</p>`:`<p class="${noShip?"late-t":"muted"}" style="margin:0">Último envio: ${fmtDate(s.lastShip)}${s.inTransit?` · ${s.inTransit} em trânsito`:""}${noShip?` · há mais de ${S.settings.noShip} dias`:""}</p>
     <div class="scroll"><table><thead><tr><th>Nº</th><th>Data</th><th>Estado</th><th class="num">Env.</th><th class="num">Rec.</th></tr></thead><tbody>${sh.map(x=>{const d=x.status==="discrepancy"||(x.status==="received"&&x.sent!==x.recv);return `<tr class="${d?"late-t":""}"><td>${esc(x.no)}</td><td>${fmtDay(x.date)}</td><td>${shipLabel(x.status)}</td><td class="num">${x.sent}</td><td class="num">${x.status==="in_transit"?"—":x.recv}</td></tr>`;}).join("")}</tbody></table></div>`}</section>
   <section class="card"><h2>Números vs objetivo</h2>${!k?`<p class="muted">Ainda sem KPI mensais (import mensal).</p>`:`<div class="kpis" style="grid-template-columns:repeat(3,1fr)">
-    ${[["Mês",k.month.split("-").reverse().join("/")],["Vendas",money(k.sales)],["Objetivo",money(k.target)],["% objetivo",k.target?Math.round(k.sales/k.target*100)+"%":"—",k.sales<k.target],["Tráfego",k.traffic??"—"],["Conversão",k.traffic&&k.tickets?(k.tickets/k.traffic*100).toFixed(1)+"%":"—"]].map(([l,v,bad])=>`<div style="display:flex;flex-direction:column"><span style="font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)">${l}</span><b style="font-family:var(--font-display);font-size:1.3rem;font-weight:500;${bad?"color:var(--late)":""}">${v}</b></div>`).join("")}</div>`}</section>`;
+    ${[["Mês",k.month.split("-").reverse().join("/")],["Vendas",money(k.sales)],["Objetivo",money(k.target)],["% objetivo",k.target?Math.round(k.sales/k.target*100)+"%":"—",k.sales<k.target],["Tráfego",k.traffic??"—"],["Conversão",k.traffic&&k.tickets?(k.tickets/k.traffic*100).toFixed(1)+"%":"—"]].map(([l,v,bad])=>`<div style="display:flex;flex-direction:column"><span style="font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)">${l}</span><b style="font-family:var(--font-display);font-size:1.3rem;font-weight:500;${bad?"color:var(--late)":""}">${v}</b></div>`).join("")}</div>`}</section>
+  <section class="card"><details><summary>Histórico de alterações nesta loja (${hist.length})</summary><div style="margin-top:8px">${hist.length?hist.slice(0,50).map(logRow).join(""):`<p class="muted">Ainda sem registos.</p>`}</div></details></section>`;
 }
+function logRow(x){ const st=x.store?S.stores.find(s=>s.id===x.store):null; return `<div class="logrow"><time>${fmtDT(x.at)}</time><span><b>${esc(userName(x.user))}</b> ${esc(x.action).toLowerCase()}${st?` · <button class="link" data-store="${st.id}" style="padding:0;font-weight:500">${esc(st.name)}</button>`:""}${x.detail?`<div class="muted" style="font-size:.82rem">${esc(x.detail)}</div>`:""}</span></div>`; }
 
 function Nova(){
   const d = UI.draft || (UI.draft = { store: UI.storeId && myStores().some(s=>s.id===UI.storeId) ? UI.storeId : "", at:(()=>{const n=new Date();return `${iso(n)}T${pad(n.getHours())}:${pad(n.getMinutes())}`;})(), reason:S.reasons[0], bad:[], rating:null, comment:"", photos:[], geo:null, geoState:"idle", planId:null, extra:{managerPresent:"",staff:"",salesFeel:"",promoOk:"",competition:"",training:[],nextSteps:"",followUp:"",priority:""} });
@@ -527,7 +616,7 @@ function Nova(){
   const list = myStores();
   const s = d.store? summary(S.stores.find(x=>x.id===+d.store)) : null;
   const items = S.items.filter(i=>i.active);
-  return `<h1>Nova visita</h1><p class="muted">Marque só o que <b>NÃO</b> está conforme. Nada marcado = tudo OK. O relatório segue por email ao responsável da loja e as ações são criadas sozinhas.</p>
+  return `<h1>Nova visita</h1><p class="muted">Marque só o que <b>NÃO</b> está conforme. Nada marcado = tudo OK. As ações são criadas sozinhas e, no fim, envia o relatório por WhatsApp ou e-mail com um toque.</p>
   ${planned?`<div class="badge" style="align-self:flex-start;white-space:normal;padding:6px 10px">📅 Visita planeada ${fmtDay(planned.date)} ${planned.time} · ${esc(planned.reason)}${planned.notes?` · ${esc(planned.notes)}`:""}</div>`:""}
   <label class="field"><span>Loja</span><select id="f-store"><option value="">Escolher a loja…</option>${list.map(x=>`<option value="${x.id}" ${+d.store===x.id?"selected":""}>${esc(x.name)} · ${esc(x.city)}</option>`).join("")}</select>
     ${s&&s.alerts.length?`<div class="badge alert" style="white-space:normal;padding:8px 12px"><b>A verificar nesta loja:</b>&nbsp;${esc(s.alerts.join(" · "))}</div>`:""}</label>
@@ -574,7 +663,7 @@ function submitVisit(){
   const d=UI.draft; const store=S.stores.find(x=>x.id===+d.store); if(!store) return;
   const miss=missingExtra(d); if(miss.length){ toast(`Faltam respostas obrigatórias: ${miss.map(k=>REQ_LABELS[k]).join(", ")}`); return; }
   const ex={...d.extra, staff:d.extra.staff===""?"":+d.extra.staff};
-  const v={id:nextId(S.visits),store:store.id,sup:UI.user,at:d.at,reason:d.reason,rating:d.rating,comment:d.comment.trim(),bad:[...d.bad],photos:d.photos,lat:d.geo?.lat??null,lng:d.geo?.lng??null,sent:true,extra:ex};
+  const v={id:nextId(S.visits),store:store.id,sup:UI.user,at:d.at,reason:d.reason,rating:d.rating,comment:d.comment.trim(),bad:[...d.bad],photos:d.photos,lat:d.geo?.lat??null,lng:d.geo?.lng??null,sent:false,sentVia:[],extra:ex};
   S.visits.push(v);
   if(ex.priority) store.priority=ex.priority;
   const pl = d.planId? S.planned.find(p=>p.id===d.planId) : S.planned.find(p=>p.store===store.id&&!p.visitId&&p.date===d.at.slice(0,10));
@@ -584,13 +673,19 @@ function submitVisit(){
   for(const id of d.bad){ const it=S.items.find(i=>i.id===id); if(!it) continue;
     const a={id:nextId(S.actions),store:store.id,visit:v.id,item:it.id,title:`${it.label} – ${store.name}`,owner:it.owner,status:"open",due:iso(addDays(new Date(d.at),it.days)),notes:it.action};
     S.actions.push(a); created.push(a); }
-  const lines=S.items.filter(i=>i.active).map(i=>`${d.bad.includes(i.id)?"❌":"✅"} ${i.label}`).join("\n");
-  const extraTxt=[ex.managerPresent&&`Responsável presente: ${ex.managerPresent}`, ex.staff!==""&&`Colaboradores presentes: ${ex.staff}`, ex.salesFeel&&`Vendas vs objetivo: ${ex.salesFeel}`, ex.promoOk&&`Promoção em vigor: ${ex.promoOk}`, ex.training.length&&`Formação a dar: ${ex.training.join(", ")}`, ex.competition&&`Concorrência: ${ex.competition}`, ex.nextSteps&&`Próximos passos: ${ex.nextSteps}`, ex.followUp&&`Follow-up planeado: ${fmtDate(ex.followUp)}`].filter(Boolean).join("\n");
-  const body=`Relatório de visita — ${store.name}\n${fmtDT(d.at)} · Supervisor: ${user().name}\nMotivo: ${v.reason}\n${v.rating?`Avaliação global: ${"★".repeat(v.rating)}${"☆".repeat(5-v.rating)}\n`:""}\nChecklist\n${lines}\n\n${created.length?`Ações a realizar\n${created.map(a=>`• ${a.title} — prazo ${fmtDate(a.due)} · ${a.owner}\n  ${a.notes}`).join("\n")}`:"✅ Todos os pontos estão conformes. Obrigado!"}${v.comment?`\n\nComentário: ${v.comment}`:""}${extraTxt?`\n\n${extraTxt}`:""}${v.photos.length?`\n\n${v.photos.length} foto(s) em anexo`:""}`;
-  S.outbox.unshift({at:new Date().toISOString(),to:`${store.email} (cc ${user().email})`,subject:`Relatório de visita — ${store.name}`,body});
+  S.outbox.unshift({at:new Date().toISOString(),to:`${store.email} (cc ${user().email})`,subject:`Relatório de visita — ${store.name}`,body:reportText(v),visit:v.id});
+  logE("Registou visita","visita",`${v.reason} · ${d.bad.length} não conforme(s) · ${created.length} ação(ões)`,store.id);
+  created.forEach(a=>logE("Criou ação","acao",`${a.title} · prazo ${fmtDate(a.due)}`,store.id));
+  if(ex.followUp) logE("Planeou follow-up","agenda",`${store.name} · ${fmtDate(ex.followUp)}`,store.id);
   UI.draft=null;
-  toast(`Visita registada · ${created.length} ação(ões) criada(s) · relatório enviado (simulado)`);
+  toast(`Visita registada · ${created.length} ação(ões) criada(s) · envie agora o relatório ↓`);
   go("loja",store.id);
+}
+function markSent(visitId, via){
+  const v=S.visits.find(x=>x.id===visitId); if(!v) return;
+  v.sent=true; (v.sentVia=v.sentVia||[]).push({via,at:new Date().toISOString().slice(0,19),user:UI.user});
+  logE("Enviou relatório por "+via,"relatorio",S.stores.find(s=>s.id===v.store)?.name||"",v.store);
+  save();
 }
 
 // ---------- agenda ----------
@@ -692,9 +787,34 @@ function Acoes(){
 }
 
 function Sede(){
-  const tabs=[["painel","Painel"],["config","Configuração"],["import","Import Sage X3"],["mail","Emails (simulados)"]];
-  return `<div class="row"><h1>Sede</h1><div class="chips">${tabs.map(([k,l])=>`<button class="chip ${UI.sedeTab===k?"on":""}" data-sedetab="${k}">${l}</button>`).join("")}</div></div>
-  ${({painel:Painel,config:Config,import:Import,mail:Mail})[UI.sedeTab]()}`;
+  const tabs=[["painel","Painel"],["contas","Contas"],["historico",`Histórico <b>${S.log.length}</b>`],["config","Configuração"],["import","Import Sage X3"],["mail","Mensagens"]];
+  const fn={painel:Painel,contas:Contas,historico:Historico,config:Config,import:Import,mail:Mail};
+  if(!fn[UI.sedeTab]) UI.sedeTab="painel";
+  return `<div class="row"><h1>Bastidor</h1><div class="chips">${tabs.map(([k,l])=>`<button class="chip ${UI.sedeTab===k?"on":""}" data-sedetab="${k}">${l}</button>`).join("")}</div></div>
+  ${fn[UI.sedeTab]()}`;
+}
+function Contas(){
+  const lastIn=u=>S.log.find(l=>l.user===u.id&&l.entity==="conta"&&/Entrou|entrou/.test(l.action))?.at;
+  const sel=(id,val,opts)=>`<select data-ucfg="${id}" style="min-width:130px">${opts.map(([v,l])=>`<option value="${v}" ${String(val)===String(v)?"selected":""}>${l}</option>`).join("")}</select>`;
+  return `<section class="card"><div class="row"><h2>Contas</h2>${UI.signup?"":`<button class="btn sm" data-act="newaccount">+ Conta</button>`}</div>
+    <p class="muted">Cada pessoa entra com a sua conta e só vê as suas lojas; as contas «Sede» veem tudo e este Bastidor. O PIN é opcional (4 dígitos). As lojas atribuem-se em <button class="link" data-sedetab="config" style="padding:0;color:var(--accent)">Configuração</button>.</p>
+    ${UI.signup?Signup(true):""}
+    <div class="scroll"><table><thead><tr><th>Nome</th><th>E-mail</th><th>Telemóvel (WhatsApp)</th><th>Perfil</th><th>PIN</th><th class="num">Lojas</th><th>Último acesso</th><th>Ativa</th></tr></thead><tbody>
+    ${S.users.map(u=>{const me=u.id===UI.user; const n=S.stores.filter(s=>s.sup===u.id&&s.active).length; return `<tr style="${u.active?"":"opacity:.55"}"><td><input data-ucfg="name:${u.id}" value="${esc(u.name)}" style="min-width:150px">${me?`<div class="muted" style="font-size:.75rem">eu</div>`:""}</td><td><input data-ucfg="email:${u.id}" type="email" value="${esc(u.email)}" style="min-width:200px"></td><td><input data-ucfg="phone:${u.id}" type="tel" value="${esc(u.phone||"")}" placeholder="+351 9…" style="min-width:150px"></td><td>${sel(`role:${u.id}`,u.role,[["sup","Supervisor"],["admin","Sede / bastidor"]])}</td><td><input data-ucfg="pin:${u.id}" inputmode="numeric" maxlength="4" value="" placeholder="${u.pin?"•••• alterar":"sem PIN"}" style="width:110px" autocomplete="off"></td><td class="num">${u.role==="admin"?"todas":n}</td><td class="muted" style="white-space:nowrap">${lastIn(u)?fmtDT(lastIn(u)):"—"}</td><td><input type="checkbox" data-ucfg="active:${u.id}" ${u.active?"checked":""} style="width:22px;height:22px;min-height:0"></td></tr>`;}).join("")}</tbody></table></div>
+    <p class="muted">Para retirar o PIN a alguém, escreva 0000 e depois apague: fica sem PIN. Não é possível desativar a própria conta nem a última conta Sede.</p></section>`;
+}
+function Historico(){
+  const types=[["all","Tudo"],["visita","Visitas"],["relatorio","Relatórios"],["acao","Ações"],["agenda","Agenda"],["loja","Lojas"],["conta","Contas"],["config","Configuração"],["import","Imports"]];
+  let l=S.log;
+  if(UI.logUser!=="all") l=l.filter(x=>String(x.user)===UI.logUser);
+  if(UI.logType!=="all") l=l.filter(x=>x.entity===UI.logType);
+  if(UI.logQ.trim()){ const q=norm(UI.logQ); l=l.filter(x=>norm(x.action+" "+x.detail+" "+(S.stores.find(s=>s.id===x.store)?.name||"")+" "+userName(x.user)).includes(q)); }
+  const byDay={}; l.slice(0,400).forEach(x=>{ const k=x.at.slice(0,10); (byDay[k]=byDay[k]||[]).push(x); });
+  return `<section class="card"><div class="row"><h2>Histórico de alterações</h2><span class="muted">${l.length} registo(s)</span></div>
+    <p class="muted">Tudo o que cada conta fez na app: visitas, relatórios enviados, ações, agenda, configuração, imports. Na app real este registo é inviolável (escrito pelo servidor).</p>
+    <div class="inline"><select id="logUser" style="width:auto;min-width:170px"><option value="all">Todas as contas</option>${S.users.map(u=>`<option value="${u.id}" ${UI.logUser===String(u.id)?"selected":""}>${esc(u.name)}</option>`).join("")}</select><input id="logQ" placeholder="Procurar (loja, ação, texto…)" value="${esc(UI.logQ)}" style="flex:1;min-width:180px"><button class="btn sm outline" data-act="logcsv">⬇ Copiar CSV</button></div>
+    <div class="chips">${types.map(([k,lab])=>`<button class="chip ${UI.logType===k?"on":""}" data-logtype="${k}">${lab}</button>`).join("")}</div>
+    ${l.length?Object.entries(byDay).map(([day,rows])=>`<h3 style="margin-top:8px">${fmtDate(day)}</h3>${rows.map(logRow).join("")}`).join(""):`<p class="muted">Nenhum registo com estes filtros.</p>`}</section>`;
 }
 function Painel(){
   const all=S.stores.filter(s=>s.active).map(summary);
@@ -714,8 +834,8 @@ function Painel(){
 function Config(){
   const st=S.settings;
   const sel=(id,val,opts)=>`<select data-cfg="${id}">${opts.map(([v,l])=>`<option value="${v}" ${String(val)===String(v)?"selected":""}>${l}</option>`).join("")}</select>`;
-  return `<section class="card"><h2>Lojas e cadências</h2><p class="muted">Latitude / longitude servem para o mapa e a rota (na app real, preenchidas a partir da morada).</p><div class="scroll"><table><thead><tr><th>Loja</th><th>Sage</th><th>Supervisor</th><th>Cadência</th><th>Temporária</th><th>até</th><th>Lat</th><th>Lng</th><th>Ativa</th></tr></thead><tbody>
-    ${S.stores.map(s=>`<tr><td>${esc(s.name)}<div class="muted">${esc(s.city)} · ${esc(s.manager)}</div></td><td>${esc(s.code)}</td><td>${sel(`sup:${s.id}`,s.sup,S.users.filter(u=>u.role==="sup").map(u=>[u.id,u.name]))}</td><td>${sel(`cad:${s.id}`,s.cad,[["A","A · 2 sem."],["B","B · mês"],["C","C · trim."]])}</td><td>${sel(`tempCad:${s.id}`,s.tempCad||"",[["","—"],["A","A"],["B","B"],["C","C"]])}</td><td><input type="date" data-cfg="tempUntil:${s.id}" value="${s.tempUntil||""}" style="min-width:150px"></td><td><input type="number" step="0.0001" data-cfg="lat:${s.id}" value="${s.lat??""}" style="width:110px"></td><td><input type="number" step="0.0001" data-cfg="lng:${s.id}" value="${s.lng??""}" style="width:110px"></td><td><input type="checkbox" data-cfg="active:${s.id}" ${s.active?"checked":""} style="width:22px;height:22px;min-height:0"></td></tr>`).join("")}</tbody></table></div>
+  return `<section class="card"><h2>Lojas e cadências</h2><p class="muted">O supervisor escolhido vê a loja na sua lista. O telemóvel é o do responsável, usado para o relatório por WhatsApp. Latitude / longitude servem para o mapa e a rota.</p><div class="scroll"><table><thead><tr><th>Loja</th><th>Sage</th><th>Supervisor</th><th>Telemóvel responsável</th><th>Cadência</th><th>Temporária</th><th>até</th><th>Lat</th><th>Lng</th><th>Ativa</th></tr></thead><tbody>
+    ${S.stores.map(s=>`<tr><td>${esc(s.name)}<div class="muted">${esc(s.city)} · ${esc(s.manager)}</div></td><td>${esc(s.code)}</td><td>${sel(`sup:${s.id}`,s.sup,S.users.filter(u=>u.role==="sup"&&(u.active||u.id===s.sup)).map(u=>[u.id,u.name+(u.active?"":" (inativa)")]))}</td><td><input type="tel" data-cfg="phone:${s.id}" value="${esc(s.phone||"")}" placeholder="+351 9…" style="min-width:150px"></td><td>${sel(`cad:${s.id}`,s.cad,[["A","A · 2 sem."],["B","B · mês"],["C","C · trim."]])}</td><td>${sel(`tempCad:${s.id}`,s.tempCad||"",[["","—"],["A","A"],["B","B"],["C","C"]])}</td><td><input type="date" data-cfg="tempUntil:${s.id}" value="${s.tempUntil||""}" style="min-width:150px"></td><td><input type="number" step="0.0001" data-cfg="lat:${s.id}" value="${s.lat??""}" style="width:110px"></td><td><input type="number" step="0.0001" data-cfg="lng:${s.id}" value="${s.lng??""}" style="width:110px"></td><td><input type="checkbox" data-cfg="active:${s.id}" ${s.active?"checked":""} style="width:22px;height:22px;min-height:0"></td></tr>`).join("")}</tbody></table></div>
     <button class="btn sm outline" data-act="addstore" style="align-self:flex-start">+ Loja</button></section>
   <section class="card"><h2>Checklist da visita</h2><p class="muted">Cada ponto não conforme cria esta ação, com este prazo e este responsável.</p><div class="scroll"><table><thead><tr><th>Ponto</th><th>Ação criada</th><th>Prazo (d)</th><th>Responsável</th><th>Ativo</th></tr></thead><tbody>
     ${S.items.map(i=>`<tr><td><input data-cfg="label:${i.id}" value="${esc(i.label)}" style="min-width:160px"></td><td><textarea data-cfg="action:${i.id}" rows="2" style="min-width:240px;min-height:0">${esc(i.action)}</textarea></td><td><input type="number" min="0" data-cfg="days:${i.id}" value="${i.days}" style="width:80px"></td><td>${sel(`owner:${i.id}`,i.owner,[["Responsável loja","Responsável loja"],["Supervisor","Supervisor"],["Sede","Sede"]])}</td><td><input type="checkbox" data-cfg="iactive:${i.id}" ${i.active?"checked":""} style="width:22px;height:22px;min-height:0"></td></tr>`).join("")}</tbody></table></div>
@@ -728,14 +848,15 @@ function Import(){
     <p class="muted">Stock: substituição completa. Expedições: atualização por nº e remoção das que já não vêm no ficheiro. Sites sem loja correspondente são assinalados.</p></section>`;
 }
 function Mail(){
-  return `<section class="card"><h2>Caixa de saída (simulação)</h2><p class="muted">Na app real, estes emails partem sozinhos: relatório a cada visita (ao responsável da loja, cc supervisor), agenda de 2ª feira por supervisor e lembrete diário das ações em atraso.</p>
-    ${S.outbox.length?S.outbox.slice(0,20).map(m=>`<div class="mail"><div class="row"><b>${esc(m.subject)}</b><span class="muted">${fmtDT(m.at)}</span></div><div class="muted">Para: ${esc(m.to)}</div><pre>${esc(m.body)}</pre></div>`).join(""):`<p class="muted">Ainda nada enviado. Registe uma visita ou gere a agenda de 2ª feira no Painel.</p>`}</section>`;
+  return `<section class="card"><h2>Mensagens geradas</h2><p class="muted">Textos que a app preparou: relatórios de visita e agendas de 2ª feira. Aqui envia-os por WhatsApp ou e-mail com um toque; na app real partem sozinhos (relatório a cada visita, agenda à 2ª feira, lembrete diário das ações em atraso).</p>
+    ${S.outbox.length?S.outbox.slice(0,20).map(m=>{const v=m.visit?S.visits.find(x=>x.id===m.visit):null; return `<div class="mail"><div class="row"><b>${esc(m.subject)}</b><span class="muted">${fmtDT(m.at)}</span></div><div class="muted">Para: ${esc(m.to)}${v?` · ${v.sent?"✓ enviado":"por enviar"}`:""}</div>${v?shareRow(v):shareGeneric(m.subject,m.body,m.toEmail||"")}<pre>${esc(m.body.replace(/\*/g,""))}</pre></div>`;}).join(""):`<p class="muted">Ainda nada gerado. Registe uma visita ou gere a agenda de 2ª feira no Painel.</p>`}</section>`;
 }
 function agenda(uid){
   const u=S.users.find(x=>x.id===uid); const m=S.stores.filter(s=>s.active&&s.sup===uid).map(summary).filter(s=>s.status!=="ok"||s.noVisit).sort((a,b)=>a.daysUntil-b.daysUntil);
   const body=`Bom dia ${u.name},\n\nLojas a visitar nos próximos ${S.settings.dueSoon} dias (🔴 = em atraso):\n\n${m.length?m.map(s=>`${s.status==="soon"?"🟠":"🔴"} ${s.name} (${s.city}) — ${s.statusText}${s.open?` · ${s.open} ação(ões) aberta(s)`:""}${s.alerts.length?` · ${s.alerts.join(" · ")}`:""}`).join("\n"):"Nenhuma loja a visitar esta semana. 👍"}\n\nBoa semana!`;
-  S.outbox.unshift({at:new Date().toISOString(),to:u.email,subject:`Lojas a visitar esta semana (${m.length})`,body});
-  UI.sedeTab="mail"; toast("Agenda gerada (simulação de email)"); render();
+  S.outbox.unshift({at:new Date().toISOString(),to:`${u.name} · ${u.email}${u.phone?` · ${u.phone}`:""}`,toEmail:u.email,subject:`Lojas a visitar esta semana (${m.length})`,body});
+  logE("Gerou agenda de 2ª feira","agenda",`${u.name} · ${m.length} loja(s)`);
+  UI.sedeTab="mail"; toast("Agenda gerada · envie por WhatsApp ou e-mail"); render();
 }
 
 // ---------- CSV import ----------
@@ -753,15 +874,26 @@ function importCSV(kind,text){
   else { out=rows.map(r=>({site:pick(r,"Site").toUpperCase(),month:(toDate(pick(r,"Mes","Mois","Month"))||"").slice(0,7),sales:toNum(pick(r,"Vendas","Sales")),target:toNum(pick(r,"Objetivo","Target")),traffic:Math.round(toNum(pick(r,"Trafego","Traffic"))),tickets:Math.round(toNum(pick(r,"Tickets")))})).filter(x=>x.site&&x.month); if(!out.length) return toast("Nenhuma linha reconhecida: verifique os cabeçalhos."); out.forEach(k=>{const i=S.kpis.findIndex(x=>x.site===k.site&&x.month===k.month); if(i>=0)S.kpis[i]=k; else S.kpis.push(k);}); }
   out.forEach(x=>{ if(!known.has(x.site)) unknown.add(x.site); });
   S.imports.unshift({kind:kind==="stock"?"Stock":kind==="shipments"?"Expedições":"KPI",at:new Date().toISOString(),rows:out.length,unknown:[...unknown].sort()});
+  logE("Importou CSV","import",`${S.imports[0].kind} · ${out.length} linha(s)${unknown.size?` · sites sem loja: ${[...unknown].join(", ")}`:""}`);
   toast(`${out.length} linha(s) importada(s)${unknown.size?` · sites sem loja: ${[...unknown].join(", ")}`:""}`); UI.sedeTab="painel"; render();
 }
 
 // ---------- events ----------
+let logQT;
 function bind(){
   root.onclick = e => {
-    const b = e.target.closest("[data-login],[data-act],[data-go],[data-store],[data-filter],[data-nova],[data-done],[data-prog],[data-reopen],[data-toggle],[data-star],[data-rmphoto],[data-acttab],[data-sedetab],[data-agenda],[data-view],[data-mapstore],[data-agview],[data-agshift],[data-agtoday],[data-agday],[data-newplan],[data-planstore],[data-editplan],[data-startvisit],[data-q],[data-train]");
+    const b = e.target.closest("[data-login],[data-act],[data-go],[data-store],[data-filter],[data-nova],[data-done],[data-prog],[data-reopen],[data-toggle],[data-star],[data-rmphoto],[data-acttab],[data-sedetab],[data-agenda],[data-view],[data-mapstore],[data-agview],[data-agshift],[data-agtoday],[data-agday],[data-newplan],[data-planstore],[data-editplan],[data-startvisit],[data-q],[data-train],[data-sendvia],[data-copy],[data-share],[data-logtype]");
     if(!b) return;
     const d=b.dataset;
+    if(d.sendvia){ markSent(+d.visit,d.sendvia); setTimeout(render,300); return; } // deixa o link abrir o WhatsApp / e-mail
+    if(d.copy){ const v=S.visits.find(x=>x.id===+d.copy); if(!v) return; const txt=reportText(v).replace(/\*/g,""); (navigator.clipboard?.writeText(txt)||Promise.reject()).then(()=>{markSent(v.id,"cópia");toast("Relatório copiado · cole no WhatsApp, e-mail ou Teams");render();},()=>{ const ta=document.createElement("textarea"); ta.value=txt; document.body.appendChild(ta); ta.select(); try{document.execCommand("copy");toast("Relatório copiado");}catch(x){toast("Não foi possível copiar");} ta.remove(); }); return; }
+    if(d.share){ const v=S.visits.find(x=>x.id===+d.share); if(!v||!navigator.share) return; navigator.share({title:`Relatório de visita — ${S.stores.find(s=>s.id===v.store)?.name||""}`,text:reportText(v).replace(/\*/g,"")}).then(()=>{markSent(v.id,"partilha");render();}).catch(()=>{}); return; }
+    if(d.logtype){ UI.logType=d.logtype; render(); return; }
+    if(d.act==="signup"){ UI.signup={name:"",email:"",phone:"",pin:"",role:"sup"}; UI.formErr=""; render(); return; }
+    if(d.act==="newaccount"){ UI.signup={name:"",email:"",phone:"",pin:"",role:"sup"}; UI.formErr=""; render(); return; }
+    if(d.act==="cancelsignup"){ UI.signup=null; UI.formErr=""; render(); return; }
+    if(d.act==="cancellogin"){ UI.loginSel=null; UI.formErr=""; render(); return; }
+    if(d.act==="logcsv"){ const rows=[["data","conta","tipo","acao","loja","detalhe"]].concat(S.log.map(x=>[x.at,userName(x.user),x.entity,x.action,S.stores.find(s=>s.id===x.store)?.name||"",x.detail])); const csv=rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(";")).join("\n"); (navigator.clipboard?.writeText(csv)||Promise.reject()).then(()=>toast(`${S.log.length} registo(s) copiado(s) em CSV`),()=>toast("Não foi possível copiar")); return; }
     if(d.view){ UI.view=d.view; if(d.view==="rota") UI.routeSel=null; render(); return; }
     if(d.agview){ UI.agView=d.agview; render(); return; }
     if(d.agshift){ const n=+d.agshift; const dd=dayOf(UI.agDate); if(Math.abs(n)===30){ dd.setMonth(dd.getMonth()+Math.sign(n)); } else dd.setDate(dd.getDate()+n); UI.agDate=iso(dd); render(); return; }
@@ -775,13 +907,13 @@ function bind(){
     if(d.train){ const arr=UI.draft.extra.training; const i=arr.indexOf(d.train); if(d.train==="Nenhuma"){ UI.draft.extra.training = i>=0? [] : ["Nenhuma"]; } else { const k=arr.indexOf("Nenhuma"); if(k>=0) arr.splice(k,1); i>=0?arr.splice(i,1):arr.push(d.train); } render(); return; }
     if(d.act==="compnone"){ UI.draft.extra.competition="Nada a assinalar"; render(); return; }
     if(d.act==="more"){ UI.more=!UI.more; render(); return; }
-    if(d.act==="saveplan"){ const p=UI.plan; if(!p.store) return; if(UI.planId){ const x=S.planned.find(y=>y.id===UI.planId); Object.assign(x,{store:+p.store,date:p.date,time:p.time,reason:p.reason,notes:p.notes}); } else { const st=S.stores.find(x=>x.id===+p.store); S.planned.push({id:nextId(S.planned),store:+p.store,sup:st.sup||UI.user,date:p.date,time:p.time,reason:p.reason,notes:p.notes,visitId:null}); } UI.agDate=p.date; UI.agView="hoje"; toast("Visita guardada na agenda"); go("agenda"); return; }
-    if(d.act==="delplan"){ S.planned=S.planned.filter(x=>x.id!==UI.planId); toast("Visita planeada apagada"); go("agenda"); return; }
-    if(d.act==="saveroute"){ const date=$("#routeDate")?.value||TODAY; const list=myStoresFiltered(); const chosen=list.filter(s=>UI.routeSel.includes(s.id)&&s.lat!=null); if(!chosen.length) return; let start=chosen[0]; if(UI.routeStart==="me"&&UI.myPos) start=UI.myPos; else if(UI.routeStart.startsWith("s")) start=list.find(s=>"s"+s.id===UI.routeStart)||chosen[0]; let order=planRoute(start,chosen.filter(s=>s!==start)); if(chosen.includes(start)) order=[start,...order.filter(s=>s!==start)]; let min=9*60+30; order.forEach(s=>{ if(!S.planned.some(p=>p.store===s.id&&p.date===date&&!p.visitId)) S.planned.push({id:nextId(S.planned),store:s.id,sup:s.sup,date,time:`${pad(Math.floor(min/60))}:${pad(min%60)}`,reason:s.noVisit||s.status!=="ok"?"Visita de cadência":"Acompanhamento de ações",notes:s.alerts.slice(0,2).join(" · "),visitId:null}); min+=45+Math.round((order.indexOf(s)<order.length-1?km(s,order[order.indexOf(s)+1]):0)/70*60); }); UI.agDate=date; UI.agView="hoje"; toast(`${order.length} visita(s) guardada(s) na agenda de ${fmtDay(date)}`); go("agenda"); return; }
+    if(d.act==="saveplan"){ const p=UI.plan; if(!p.store) return; const st=S.stores.find(x=>x.id===+p.store); if(UI.planId){ const x=S.planned.find(y=>y.id===UI.planId); Object.assign(x,{store:+p.store,date:p.date,time:p.time,reason:p.reason,notes:p.notes}); } else { S.planned.push({id:nextId(S.planned),store:+p.store,sup:st.sup||UI.user,date:p.date,time:p.time,reason:p.reason,notes:p.notes,visitId:null}); } logE(UI.planId?"Editou visita planeada":"Planeou visita","agenda",`${fmtDate(p.date)} ${p.time} · ${p.reason}`,st.id); UI.agDate=p.date; UI.agView="hoje"; toast("Visita guardada na agenda"); go("agenda"); return; }
+    if(d.act==="delplan"){ const x=S.planned.find(y=>y.id===UI.planId); if(x) logE("Apagou visita planeada","agenda",`${fmtDate(x.date)} ${x.time} · ${x.reason}`,x.store); S.planned=S.planned.filter(x=>x.id!==UI.planId); toast("Visita planeada apagada"); go("agenda"); return; }
+    if(d.act==="saveroute"){ const date=$("#routeDate")?.value||TODAY; const list=myStoresFiltered(); const chosen=list.filter(s=>UI.routeSel.includes(s.id)&&s.lat!=null); if(!chosen.length) return; let start=chosen[0]; if(UI.routeStart==="me"&&UI.myPos) start=UI.myPos; else if(UI.routeStart.startsWith("s")) start=list.find(s=>"s"+s.id===UI.routeStart)||chosen[0]; let order=planRoute(start,chosen.filter(s=>s!==start)); if(chosen.includes(start)) order=[start,...order.filter(s=>s!==start)]; let min=9*60+30; order.forEach(s=>{ if(!S.planned.some(p=>p.store===s.id&&p.date===date&&!p.visitId)) S.planned.push({id:nextId(S.planned),store:s.id,sup:s.sup,date,time:`${pad(Math.floor(min/60))}:${pad(min%60)}`,reason:s.noVisit||s.status!=="ok"?"Visita de cadência":"Acompanhamento de ações",notes:s.alerts.slice(0,2).join(" · "),visitId:null}); min+=45+Math.round((order.indexOf(s)<order.length-1?km(s,order[order.indexOf(s)+1]):0)/70*60); }); logE("Guardou rota na agenda","agenda",`${fmtDate(date)} · ${order.map(s=>s.name.replace("P&C ","")).join(" → ")}`); UI.agDate=date; UI.agView="hoje"; toast(`${order.length} visita(s) guardada(s) na agenda de ${fmtDay(date)}`); go("agenda"); return; }
     if(d.mapstore){ UI.mapSel = UI.mapSel===+d.mapstore? null : +d.mapstore; render(); return; }
     if(d.act==="mypos"){ if(!navigator.geolocation){toast("GPS indisponível");return;} navigator.geolocation.getCurrentPosition(p=>{UI.myPos={lat:p.coords.latitude,lng:p.coords.longitude,name:"A minha posição"};render();},()=>toast("Posição recusada ou indisponível"),{enableHighAccuracy:true,timeout:10000}); return; }
-    if(d.act==="applybest"){ const pend=myPlanned().filter(p=>p.date===UI.agDate&&!p.visitId).sort((a,b)=>a.time.localeCompare(b.time)); const st=pend.map(p=>summary(S.stores.find(x=>x.id===p.store))).filter(s=>s.lat!=null); if(st.length<2) return; const first=st[0]; const best=[first,...planRoute(first,st.slice(1))]; let min=(+pend[0].time.slice(0,2))*60+(+pend[0].time.slice(3,5)); const rows=schedule(null,best,min); rows.forEach(r=>{ const p=pend.find(x=>x.store===r.s.id); if(p) p.time=hm(r.arrive); }); toast("Ordem mais curta aplicada · horas recalculadas"); render(); return; }
-    if(d.login){ UI.user=+d.login; UI.screen="lojas"; render(); return; }
+    if(d.act==="applybest"){ const pend=myPlanned().filter(p=>p.date===UI.agDate&&!p.visitId).sort((a,b)=>a.time.localeCompare(b.time)); const st=pend.map(p=>summary(S.stores.find(x=>x.id===p.store))).filter(s=>s.lat!=null); if(st.length<2) return; const first=st[0]; const best=[first,...planRoute(first,st.slice(1))]; let min=(+pend[0].time.slice(0,2))*60+(+pend[0].time.slice(3,5)); const rows=schedule(null,best,min); rows.forEach(r=>{ const p=pend.find(x=>x.store===r.s.id); if(p) p.time=hm(r.arrive); }); logE("Reordenou o dia pela rota mais curta","agenda",`${fmtDate(UI.agDate)} · ${best.map(s=>s.name.replace("P&C ","")).join(" → ")}`); toast("Ordem mais curta aplicada · horas recalculadas"); render(); return; }
+    if(d.login){ const u=S.users.find(x=>x.id===+d.login); if(!u) return; if(u.pin){ UI.loginSel=u.id; UI.formErr=""; render(); } else doLogin(u.id); return; }
     if(d.go){ go(d.go); return; }
     if(d.store){ go("loja",+d.store); return; }
     if(d.nova){ UI.storeId=+d.nova; UI.draft=null; go("nova"); return; }
@@ -789,21 +921,37 @@ function bind(){
     if(d.acttab){ UI.actTab=d.acttab; render(); return; }
     if(d.sedetab){ UI.sedeTab=d.sedetab; render(); return; }
     if(d.agenda){ agenda(+d.agenda); return; }
-    if(d.done||d.prog||d.reopen){ const a=S.actions.find(x=>x.id===+(d.done||d.prog||d.reopen)); if(a){ a.status=d.done?"done":d.prog?"in_progress":"open"; toast(d.done?"Ação fechada":d.prog?"Ação em curso":"Ação reaberta"); render(); } return; }
+    if(d.done||d.prog||d.reopen){ const a=S.actions.find(x=>x.id===+(d.done||d.prog||d.reopen)); if(a){ a.status=d.done?"done":d.prog?"in_progress":"open"; logE(d.done?"Fechou ação":d.prog?"Pôs ação em curso":"Reabriu ação","acao",a.title,a.store); toast(d.done?"Ação fechada":d.prog?"Ação em curso":"Ação reaberta"); render(); } return; }
     if(d.toggle){ const id=+d.toggle, i=UI.draft.bad.indexOf(id); i>=0?UI.draft.bad.splice(i,1):UI.draft.bad.push(id); render(); return; }
     if(d.star){ UI.draft.rating = UI.draft.rating===+d.star? null : +d.star; render(); return; }
     if(d.rmphoto){ UI.draft.photos.splice(+d.rmphoto,1); render(); return; }
-    if(d.act==="logout"){ UI.user=null; UI.draft=null; render(); return; }
-    if(d.act==="reset"){ S=SEED(); save(); toast("Dados de exemplo repostos"); render(); return; }
+    if(d.act==="logout"){ logE("Saiu da app","conta"); UI.user=null; UI.draft=null; UI.signup=null; UI.loginSel=null; render(); return; }
+    if(d.act==="reset"){ S=SEED(); UI.user=null; UI.signup=null; UI.loginSel=null; save(); toast("Dados de exemplo repostos"); render(); return; }
     if(d.act==="addphoto"){ $("#f-photo").click(); return; }
     if(d.act==="geo"){ UI.draft.geoState="asking"; render(); if(!navigator.geolocation){UI.draft.geoState="denied";render();return;} navigator.geolocation.getCurrentPosition(p=>{UI.draft.geo={lat:+p.coords.latitude.toFixed(5),lng:+p.coords.longitude.toFixed(5)};UI.draft.geoState="idle";render();},()=>{UI.draft.geoState="denied";render();},{enableHighAccuracy:true,timeout:10000}); return; }
     if(d.act==="submit"){ submitVisit(); return; }
-    if(d.act==="addstore"){ const id=nextId(S.stores); S.stores.push({id,name:`Nova loja ${id}`,code:`L${String(100+id)}`,city:"",manager:"",email:"",cad:"B",tempCad:null,tempUntil:null,sup:S.users.find(u=>u.role==="sup").id,active:true}); render(); toast("Loja criada · edite o nome e o código Sage na app real"); return; }
-    if(d.act==="additem"){ S.items.push({id:nextId(S.items),label:"Novo ponto",action:"",days:7,owner:"Responsável loja",active:true}); render(); return; }
+    if(d.act==="addstore"){ const id=nextId(S.stores); S.stores.push({id,name:`Nova loja ${id}`,code:`L${String(100+id)}`,city:"",manager:"",email:"",phone:"",cad:"B",tempCad:null,tempUntil:null,sup:(S.users.find(u=>u.role==="sup"&&u.active)||S.users[0]).id,active:true,lat:null,lng:null,priority:"Normal",notes:""}); logE("Criou loja","loja",`Nova loja ${id}`,id); render(); toast("Loja criada · edite o nome e o código Sage na app real"); return; }
+    if(d.act==="additem"){ const id=nextId(S.items); S.items.push({id,label:"Novo ponto",action:"",days:7,owner:"Responsável loja",active:true}); logE("Criou ponto da checklist","config",`Novo ponto ${id}`); render(); return; }
+  };
+  root.onsubmit = e => {
+    e.preventDefault(); const f=e.target.dataset.form;
+    if(f==="pin"){ const u=S.users.find(x=>x.id===UI.loginSel); const val=$("#pin")?.value||""; if(u&&val===u.pin) doLogin(u.id); else { UI.formErr="PIN incorreto."; render(); setTimeout(()=>$("#pin")?.focus(),0); } return; }
+    if(f==="signup"){ createAccount(!!UI.user&&isAdmin()); return; }
   };
   root.onchange = e => {
     const t=e.target;
     if(t.id==="supFilter"){ UI.supFilter=t.value; render(); return; }
+    if(t.id==="logUser"){ UI.logUser=t.value; render(); return; }
+    if(t.id==="su-role"){ UI.signup.role=t.value; return; }
+    if(t.dataset.ucfg){ const [k,id]=t.dataset.ucfg.split(":"); const u=S.users.find(x=>x.id===+id); if(!u) return; const v=t.type==="checkbox"?t.checked:t.value.trim(); const me=u.id===UI.user; const admins=()=>S.users.filter(x=>x.active&&x.role==="admin").length;
+      if(k==="role"&&me){ toast("Não pode alterar o seu próprio perfil."); return render(); }
+      if(k==="active"&&me){ toast("Não pode desativar a sua própria conta."); return render(); }
+      if((k==="role"&&v!=="admin"&&u.role==="admin"&&admins()<=1)||(k==="active"&&!v&&u.role==="admin"&&admins()<=1)){ toast("Tem de existir pelo menos uma conta Sede ativa."); return render(); }
+      if(k==="pin"){ if(v===""){ return; } if(v==="0000"){ const had=!!u.pin; u.pin=""; if(had) logE("Retirou PIN","conta",u.name); toast(`PIN de ${u.name} retirado`); return render(); } if(!/^\d{4}$/.test(v)){ toast("O PIN tem de ter 4 dígitos."); return render(); } u.pin=v; logE("Definiu PIN","conta",u.name); toast(`PIN de ${u.name} definido`); return render(); }
+      if(k==="email"){ if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)||S.users.some(x=>x.id!==u.id&&x.email.toLowerCase()===v.toLowerCase())){ toast("E-mail inválido ou já usado."); return render(); } }
+      if(k==="name"&&!v){ toast("O nome é obrigatório."); return render(); }
+      const old=u[k]; u[k]=v; const lab={name:"nome",email:"e-mail",phone:"telemóvel",role:"perfil",active:"ativa"}[k]||k; const show=x=>k==="role"?(x==="admin"?"Sede":"Supervisor"):k==="active"?(x?"sim":"não"):(x||"—");
+      logE("Alterou conta","conta",`${u.name} · ${lab}: ${show(old)} → ${show(v)}`); save(); toast("Guardado"); if(k==="role"||k==="active") render(); return; }
     if(t.id==="f-store"){ UI.draft.store=t.value; UI.storeId=+t.value||null; render(); return; }
     if(t.id==="f-at"){ UI.draft.at=t.value; return; }
     if(t.id==="f-reason"){ UI.draft.reason=t.value; return; }
@@ -813,18 +961,22 @@ function bind(){
     if(t.id==="p-date"){ UI.plan.date=t.value; return; }
     if(t.id==="p-time"){ UI.plan.time=t.value; return; }
     if(t.id==="p-reason"){ UI.plan.reason=t.value; return; }
-    if(t.dataset.storenotes){ const s=S.stores.find(x=>x.id===+t.dataset.storenotes); if(s){ s.notes=t.value; save(); toast("Notas guardadas"); } return; }
+    if(t.dataset.storenotes){ const s=S.stores.find(x=>x.id===+t.dataset.storenotes); if(s){ s.notes=t.value; logE("Alterou notas da loja","loja",s.notes.slice(0,120),s.id); save(); toast("Notas guardadas"); } return; }
     if(t.id==="routeStart"){ UI.routeStart=t.value; render(); return; }
     if(t.dataset.route){ const id=+t.dataset.route; const i=UI.routeSel.indexOf(id); i>=0?UI.routeSel.splice(i,1):UI.routeSel.push(id); render(); return; }
     if(t.id==="f-photo"){ Array.from(t.files||[]).forEach(f=>{ if(!f.type.startsWith("image/")) return; const img=new Image(); const url=URL.createObjectURL(f); img.onload=()=>{ const c=document.createElement("canvas"); const k=Math.min(1,900/Math.max(img.width,img.height)); c.width=img.width*k; c.height=img.height*k; c.getContext("2d").drawImage(img,0,0,c.width,c.height); UI.draft.photos.push(c.toDataURL("image/jpeg",.8)); URL.revokeObjectURL(url); render(); }; img.src=url; }); t.value=""; return; }
     if(t.dataset.import){ const f=t.files?.[0]; if(!f) return; const r=new FileReader(); r.onload=()=>importCSV(t.dataset.import,String(r.result)); r.readAsText(f,"utf-8"); t.value=""; return; }
-    if(t.dataset.cfg){ const [k,id]=t.dataset.cfg.split(":"); const v=t.type==="checkbox"?t.checked:t.value;
-      if(k==="set"){ S.settings[id]=Math.max(1,+v||1); }
-      else if(["sup","cad","tempCad","tempUntil","active","lat","lng"].includes(k)){ const s=S.stores.find(x=>x.id===+id); if(s){ if(k==="sup")s.sup=+v; else if(k==="tempCad")s.tempCad=v||null; else if(k==="tempUntil")s.tempUntil=v||null; else if(k==="lat"||k==="lng")s[k]=v===""?null:+v; else s[k]=v; } }
-      else { const i=S.items.find(x=>x.id===+id); if(i){ if(k==="days")i.days=Math.max(0,+v||0); else if(k==="iactive")i.active=v; else i[k]=v; } }
+    if(t.dataset.cfg){ const [k,id]=t.dataset.cfg.split(":"); const v=t.type==="checkbox"?t.checked:t.value; let what="", old="", neu=v, store=null; const yn=x=>x?"sim":"não";
+      if(k==="set"){ old=S.settings[id]; S.settings[id]=Math.max(1,+v||1); neu=S.settings[id]; what=`Parâmetro ${id}`; }
+      else if(["sup","cad","tempCad","tempUntil","active","lat","lng","phone"].includes(k)){ const s=S.stores.find(x=>x.id===+id); if(s){ store=s.id; const lab={sup:"supervisor",cad:"cadência",tempCad:"cadência temporária",tempUntil:"temporária até",active:"ativa",lat:"latitude",lng:"longitude",phone:"telemóvel"}[k];
+          if(k==="sup"){ old=userName(s.sup); s.sup=+v; neu=userName(s.sup); } else if(k==="tempCad"){ old=s.tempCad; s.tempCad=v||null; } else if(k==="tempUntil"){ old=s.tempUntil; s.tempUntil=v||null; } else if(k==="lat"||k==="lng"){ old=s[k]; s[k]=v===""?null:+v; } else if(k==="active"){ old=yn(s.active); s.active=v; neu=yn(v); } else { old=s[k]; s[k]=v; }
+          what=`${s.name} · ${lab}`; } }
+      else { const i=S.items.find(x=>x.id===+id); if(i){ const lab={label:"ponto",action:"ação criada",days:"prazo (dias)",owner:"responsável",iactive:"ativo"}[k]||k; if(k==="days"){ old=i.days; i.days=Math.max(0,+v||0); neu=i.days; } else if(k==="iactive"){ old=yn(i.active); i.active=v; neu=yn(v); } else { old=i[k]; i[k]=v; } what=`Checklist «${i.label}» · ${lab}`; } }
+      if(what) logE("Alterou configuração","config",`${what}: ${old===null||old===""||old===undefined?"—":old} → ${neu===null||neu===""||neu===undefined?"—":neu}`,store);
       save(); toast("Guardado"); return; }
   };
-  root.oninput = e => { const t=e.target; if(t.id==="f-comment") UI.draft.comment=t.value; else if(t.id==="f-comp") UI.draft.extra.competition=t.value; else if(t.id==="f-next") UI.draft.extra.nextSteps=t.value; else if(t.id==="p-notes") UI.plan.notes=t.value; };
+  root.oninput = e => { const t=e.target; if(t.id==="f-comment") UI.draft.comment=t.value; else if(t.id==="f-comp") UI.draft.extra.competition=t.value; else if(t.id==="f-next") UI.draft.extra.nextSteps=t.value; else if(t.id==="p-notes") UI.plan.notes=t.value;
+    else if(t.id==="su-name") UI.signup.name=t.value; else if(t.id==="su-email") UI.signup.email=t.value; else if(t.id==="su-phone") UI.signup.phone=t.value; else if(t.id==="su-pin") UI.signup.pin=t.value.replace(/\D/g,"").slice(0,4); else if(t.id==="logQ"){ UI.logQ=t.value; clearTimeout(logQT); logQT=setTimeout(()=>{ render(); const el=$("#logQ"); if(el){ el.focus(); el.setSelectionRange(el.value.length,el.value.length); } },350); } };
 }
 render();
 })();
