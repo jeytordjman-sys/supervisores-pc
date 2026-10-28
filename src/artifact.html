@@ -175,7 +175,10 @@ details summary{cursor:pointer;color:var(--accent);font-weight:500;font-size:.9r
 .q .opts{display:flex;gap:6px;flex-wrap:wrap}
 .q .opts button{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:8px 14px;font-size:.85rem;cursor:pointer;min-height:40px}
 .q .opts button.on{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
-.more{border:1px dashed var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:12px}
+.more{border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:12px;background:var(--surface)}
+.missing>.field>span:first-child,.missing>span:first-child{color:var(--late)}
+.missing .opts button:not(.on){border-color:color-mix(in srgb,var(--late) 50%,var(--line))}
+.missing textarea,.missing input{border-color:var(--late)}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:.9rem}
 .kv span:nth-child(odd){color:var(--muted)}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -516,6 +519,7 @@ function Nova(){
   const d = UI.draft || (UI.draft = { store: UI.storeId && myStores().some(s=>s.id===UI.storeId) ? UI.storeId : "", at:(()=>{const n=new Date();return `${iso(n)}T${pad(n.getHours())}:${pad(n.getMinutes())}`;})(), reason:S.reasons[0], bad:[], rating:null, comment:"", photos:[], geo:null, geoState:"idle", planId:null, extra:{managerPresent:"",staff:"",salesFeel:"",promoOk:"",competition:"",training:[],nextSteps:"",followUp:"",priority:""} });
   const planned = d.planId? S.planned.find(p=>p.id===d.planId) : null;
   const opt=(k,vals)=>`<div class="opts">${vals.map(v=>`<button type="button" data-q="${k}" data-v="${esc(v)}" class="${d.extra[k]===v?"on":""}">${esc(v)}</button>`).join("")}</div>`;
+  const miss=missingExtra(d);
   const list = myStores();
   const s = d.store? summary(S.stores.find(x=>x.id===+d.store)) : null;
   const items = S.items.filter(i=>i.active);
@@ -532,23 +536,39 @@ function Nova(){
   <div class="field"><span>Fotos</span><div class="photos">${d.photos.map((p,i)=>`<span class="photo"><img src="${p}" alt=""><button data-rmphoto="${i}" aria-label="Remover">×</button></span>`).join("")}<button class="addphoto" data-act="addphoto">${I.cam}<span>Tirar / escolher</span></button><input id="f-photo" type="file" accept="image/*" capture="environment" multiple hidden></div></div>
   <div class="field"><span>Avaliação global da loja</span><div class="stars" role="radiogroup">${[1,2,3,4,5].map(n=>`<button data-star="${n}" class="${d.rating&&n<=d.rating?"on":""}" role="radio" aria-checked="${d.rating===n}">★</button>`).join("")}</div></div>
   <label class="field"><span>Comentário para o responsável (opcional)</span><textarea id="f-comment" rows="3" placeholder="Ex.: provador com pó; 3 etiquetas de promoção em falta.">${esc(d.comment)}</textarea></label>
-  <button class="btn outline" data-act="more" style="align-self:flex-start">${UI.more?"− Menos perguntas":"+ Mais perguntas (opcional · 2 min)"}</button>
-  ${UI.more?`<div class="more">
-    <div class="q"><span class="field"><span>Responsável da loja presente?</span></span>${opt("managerPresent",["Sim","Não","Substituto"])}</div>
-    <label class="field"><span>Colaboradores presentes</span><input id="f-staff" type="number" min="0" inputmode="numeric" value="${esc(d.extra.staff)}" style="max-width:140px"></label>
-    <div class="q"><span class="field"><span>Vendas vs objetivo (feedback da equipa)</span></span>${opt("salesFeel",["Acima","Em linha","Abaixo","Não sabe"])}</div>
-    <div class="q"><span class="field"><span>Promoção em vigor bem implementada?</span></span>${opt("promoOk",["Sim","Parcialmente","Não","Sem promoção"])}</div>
-    <div class="q"><span class="field"><span>Formação a dar à equipa</span></span><div class="opts">${S.trainings.map(t=>`<button type="button" data-train="${esc(t)}" class="${d.extra.training.includes(t)?"on":""}">${esc(t)}</button>`).join("")}</div></div>
-    <label class="field"><span>Concorrência / mercado (o que viu no centro)</span><textarea id="f-comp" rows="2" placeholder="Ex.: concorrente com -30% em fragrâncias masculinas.">${esc(d.extra.competition)}</textarea></label>
-    <label class="field"><span>Próximos passos combinados com o responsável</span><textarea id="f-next" rows="2">${esc(d.extra.nextSteps)}</textarea></label>
-    <div class="grid2"><label class="field"><span>Follow-up: planear nova visita em</span><input id="f-follow" type="date" value="${d.extra.followUp}"></label>
-    <div class="q"><span class="field"><span>Prioridade da loja</span></span>${opt("priority",["Baixa","Normal","Alta"])}</div></div>
-  </div>`:""}
-  <button class="btn lg" data-act="submit" ${!d.store?"disabled":""}>Registar visita e enviar relatório</button>`;
+  <div class="more">
+    <h3 style="margin:0">Perguntas obrigatórias <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:500">· ≈ 2 min</span></h3>
+    <div class="q ${miss.includes("managerPresent")?"missing":""}"><span class="field"><span>Responsável da loja presente? *</span></span>${opt("managerPresent",["Sim","Não","Substituto"])}</div>
+    <label class="field ${miss.includes("staff")?"missing":""}"><span>Colaboradores presentes *</span><input id="f-staff" type="number" min="0" inputmode="numeric" value="${esc(d.extra.staff)}" style="max-width:140px" required></label>
+    <div class="q ${miss.includes("salesFeel")?"missing":""}"><span class="field"><span>Vendas vs objetivo (feedback da equipa) *</span></span>${opt("salesFeel",["Acima","Em linha","Abaixo","Não sabe"])}</div>
+    <div class="q ${miss.includes("promoOk")?"missing":""}"><span class="field"><span>Promoção em vigor bem implementada? *</span></span>${opt("promoOk",["Sim","Parcialmente","Não","Sem promoção"])}</div>
+    <div class="q ${miss.includes("training")?"missing":""}"><span class="field"><span>Formação a dar à equipa * <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:400">(uma ou várias, ou «Nenhuma»)</span></span></span><div class="opts">${[...S.trainings,"Nenhuma"].map(t=>`<button type="button" data-train="${esc(t)}" class="${d.extra.training.includes(t)?"on":""}">${esc(t)}</button>`).join("")}</div></div>
+    <label class="field ${miss.includes("competition")?"missing":""}"><span>Concorrência / mercado (o que viu no centro) *</span><textarea id="f-comp" rows="2" placeholder="Ex.: concorrente com -30% em fragrâncias masculinas." required>${esc(d.extra.competition)}</textarea><button type="button" class="btn sm ghost" data-act="compnone" style="align-self:flex-start">Nada a assinalar</button></label>
+    <label class="field ${miss.includes("nextSteps")?"missing":""}"><span>Próximos passos combinados com o responsável *</span><textarea id="f-next" rows="2" placeholder="Ex.: repor gôndola central até sexta; briefing da equipa na 2ª feira." required>${esc(d.extra.nextSteps)}</textarea></label>
+    <div class="grid2"><label class="field"><span>Follow-up: planear nova visita em (opcional)</span><input id="f-follow" type="date" value="${d.extra.followUp}"></label>
+    <div class="q ${miss.includes("priority")?"missing":""}"><span class="field"><span>Prioridade da loja *</span></span>${opt("priority",["Baixa","Normal","Alta"])}</div></div>
+  </div>
+  ${d.store&&miss.length?`<p class="late-t" style="margin:0;font-size:.9rem">Faltam ${miss.length} resposta(s): ${miss.map(k=>REQ_LABELS[k]).join(", ")}.</p>`:""}
+  <button class="btn lg" data-act="submit" ${!d.store||miss.length?"disabled":""}>Registar visita e enviar relatório</button>`;
 }
 
+// Perguntas obrigatórias da visita (todas, exceto a data de follow-up).
+const REQ_LABELS={managerPresent:"responsável presente",staff:"colaboradores presentes",salesFeel:"vendas vs objetivo",promoOk:"promoção",training:"formação",competition:"concorrência",nextSteps:"próximos passos",priority:"prioridade"};
+function missingExtra(d){
+  const e=d.extra; const m=[];
+  if(!e.managerPresent) m.push("managerPresent");
+  if(e.staff===""||e.staff===null||e.staff===undefined) m.push("staff");
+  if(!e.salesFeel) m.push("salesFeel");
+  if(!e.promoOk) m.push("promoOk");
+  if(!e.training.length) m.push("training");
+  if(!e.competition.trim()) m.push("competition");
+  if(!e.nextSteps.trim()) m.push("nextSteps");
+  if(!e.priority) m.push("priority");
+  return m;
+}
 function submitVisit(){
   const d=UI.draft; const store=S.stores.find(x=>x.id===+d.store); if(!store) return;
+  const miss=missingExtra(d); if(miss.length){ toast(`Faltam respostas obrigatórias: ${miss.map(k=>REQ_LABELS[k]).join(", ")}`); return; }
   const ex={...d.extra, staff:d.extra.staff===""?"":+d.extra.staff};
   const v={id:nextId(S.visits),store:store.id,sup:UI.user,at:d.at,reason:d.reason,rating:d.rating,comment:d.comment.trim(),bad:[...d.bad],photos:d.photos,lat:d.geo?.lat??null,lng:d.geo?.lng??null,sent:true,extra:ex};
   S.visits.push(v);
@@ -748,7 +768,8 @@ function bind(){
     if(d.editplan){ openPlan(null,+d.editplan,null); return; }
     if(d.startvisit){ const p=S.planned.find(x=>x.id===+d.startvisit); if(!p) return; UI.storeId=p.store; UI.draft=null; go("nova"); UI.draft.planId=p.id; UI.draft.reason=p.reason; render(); return; }
     if(d.q){ UI.draft.extra[d.q] = UI.draft.extra[d.q]===d.v? "" : d.v; render(); return; }
-    if(d.train){ const arr=UI.draft.extra.training; const i=arr.indexOf(d.train); i>=0?arr.splice(i,1):arr.push(d.train); render(); return; }
+    if(d.train){ const arr=UI.draft.extra.training; const i=arr.indexOf(d.train); if(d.train==="Nenhuma"){ UI.draft.extra.training = i>=0? [] : ["Nenhuma"]; } else { const k=arr.indexOf("Nenhuma"); if(k>=0) arr.splice(k,1); i>=0?arr.splice(i,1):arr.push(d.train); } render(); return; }
+    if(d.act==="compnone"){ UI.draft.extra.competition="Nada a assinalar"; render(); return; }
     if(d.act==="more"){ UI.more=!UI.more; render(); return; }
     if(d.act==="saveplan"){ const p=UI.plan; if(!p.store) return; if(UI.planId){ const x=S.planned.find(y=>y.id===UI.planId); Object.assign(x,{store:+p.store,date:p.date,time:p.time,reason:p.reason,notes:p.notes}); } else { const st=S.stores.find(x=>x.id===+p.store); S.planned.push({id:nextId(S.planned),store:+p.store,sup:st.sup||UI.user,date:p.date,time:p.time,reason:p.reason,notes:p.notes,visitId:null}); } UI.agDate=p.date; UI.agView="hoje"; toast("Visita guardada na agenda"); go("agenda"); return; }
     if(d.act==="delplan"){ S.planned=S.planned.filter(x=>x.id!==UI.planId); toast("Visita planeada apagada"); go("agenda"); return; }
