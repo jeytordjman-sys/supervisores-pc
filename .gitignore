@@ -1,0 +1,5 @@
+import-sage/config.ini
+import-sage/import_sage.log
+__pycache__/
+.claude/
+*.zip

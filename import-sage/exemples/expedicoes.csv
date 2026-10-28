@@ -1,0 +1,5 @@
+NumExpedicao;SiteDestino;DataEnvio;NbLinhas;QtdEnviada;QtdRecebida;Estado
+EXP-2026-1001;L001;20/10/2026;14;120;118;Diferenca
+EXP-2026-1002;L001;24/10/2026;6;40;0;Em transito
+EXP-2026-1003;L010;05/10/2026;9;75;75;Recebida
+EXP-2026-1004;L011;22/10/2026;11;90;90;Recebida

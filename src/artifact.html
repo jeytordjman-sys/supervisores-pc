@@ -1,0 +1,806 @@
+<title>Supervisores P&C</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter+Tight:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: one-screen phone app — slim top bar, scrolling main, fixed bottom tab bar; rail on wide screens. */
+:root{
+  --bg:#f7f3ec; --surface:#fdfaf5; --fg:#1f1a1d; --muted:#716569; --line:#ddd3c6; --soft:#ece5da;
+  --accent:#5b2a4a; --accent-fg:#fdf7f3; --accent-soft:#efe4ea;
+  --ok:#2f7a4f; --ok-bg:#e4f3ea; --soon:#c27a12; --soon-bg:#fbeed6; --late:#b8362f; --late-bg:#fbe3e1;
+  --font-display:"Fraunces",Georgia,serif; --font-body:"Inter Tight",system-ui,-apple-system,sans-serif;
+  --tab:64px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#171214; --surface:#231b1f; --fg:#f3ece6; --muted:#a69aa0; --line:#3d3238; --soft:#2e2529;
+  --accent:#c98fb3; --accent-fg:#241018; --accent-soft:#3a2a34;
+  --ok:#6fc290; --ok-bg:#16301f; --soon:#e5a94a; --soon-bg:#35270f; --late:#e3736c; --late-bg:#3a1714; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#171214; --surface:#231b1f; --fg:#f3ece6; --muted:#a69aa0; --line:#3d3238; --soft:#2e2529;
+  --accent:#c98fb3; --accent-fg:#241018; --accent-soft:#3a2a34;
+  --ok:#6fc290; --ok-bg:#16301f; --soon:#e5a94a; --soon-bg:#35270f; --late:#e3736c; --late-bg:#3a1714; color-scheme:dark}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-body);font-size:15px;line-height:1.45;-webkit-font-smoothing:antialiased}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+button,input,select,textarea{font:inherit;color:inherit}
+h1,h2,h3{font-family:var(--font-display);font-weight:500;margin:0;text-wrap:balance;line-height:1.15}
+h1{font-size:1.6rem}h2{font-size:1.15rem}h3{font-size:.78rem;font-family:var(--font-body);font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+a{color:var(--accent)}
+.app{min-height:100%;display:flex;flex-direction:column}
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:9;display:flex;align-items:center;justify-content:space-between;gap:8px;padding-block:8px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));background:color-mix(in srgb,var(--bg) 90%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:8px;font-family:var(--font-display);font-size:1.05rem}
+.mark{background:var(--accent);color:var(--accent-fg);border-radius:6px;padding:2px 8px;font-weight:600}
+.who{display:flex;align-items:center;gap:8px;font-size:.85rem;color:var(--muted);min-width:0}
+.who span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.link{background:none;border:0;padding:6px;color:var(--muted);cursor:pointer;border-radius:8px}
+.link:hover{background:var(--soft);color:var(--fg)}
+main{flex:1;width:100%;max-width:720px;margin:0 auto;padding-block:16px calc(var(--tab) + 24px + env(safe-area-inset-bottom,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:16px}
+nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:9;height:calc(var(--tab) + env(safe-area-inset-bottom,0px));padding-bottom:env(safe-area-inset-bottom,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px);display:grid;grid-auto-flow:column;grid-auto-columns:1fr;background:var(--surface);border-top:1px solid var(--line)}
+nav.tabs button{border:0;background:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:.7rem;font-weight:500;color:var(--muted);cursor:pointer}
+nav.tabs button svg{width:22px;height:22px}
+nav.tabs button.on{color:var(--accent)}
+nav.tabs button.on svg{stroke-width:2.4}
+@media (min-width:900px){
+  .app{display:grid;grid-template-columns:200px 1fr;grid-template-rows:auto 1fr}
+  .top{grid-column:1/-1}
+  nav.tabs{position:sticky;top:57px;bottom:auto;align-self:start;height:auto;min-height:calc(100vh - 57px);grid-auto-flow:row;grid-auto-rows:max-content;gap:4px;padding:16px 12px;border-top:0;border-right:1px solid var(--line);background:var(--soft)}
+  nav.tabs button{flex-direction:row;justify-content:flex-start;gap:12px;padding:8px 12px;border-radius:8px;font-size:.9rem}
+  nav.tabs button.on{background:var(--accent-soft)}
+  main{max-width:1100px;padding-block:24px 40px}
+}
+/* pieces */
+.chips{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}.chips::-webkit-scrollbar{display:none}
+.chip{flex:0 0 auto;border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:999px;padding:8px 14px;font-size:.85rem;font-weight:500;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.chip.on{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+.chip b{font-weight:600;opacity:.85;font-variant-numeric:tabular-nums}
+.status{display:inline-flex;align-items:center;gap:6px;padding:3px 10px 3px 8px;border-radius:999px;font-size:.78rem;font-weight:600;white-space:nowrap}
+.status::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor}
+.s-ok{color:var(--ok);background:var(--ok-bg)}.s-soon{color:var(--soon);background:var(--soon-bg)}.s-late,.s-never{color:var(--late);background:var(--late-bg)}.s-neutral{color:var(--muted);background:var(--soft)}
+.list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.card.alert{border-color:var(--soon)}
+.row{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.store-card{display:flex;flex-direction:row;align-items:center;gap:12px;cursor:pointer;width:100%;text-align:left}
+.store-card:active{transform:scale(.995)}
+.store-card .body{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.name{font-family:var(--font-display);font-size:1.15rem;font-weight:500}
+.meta{display:flex;flex-wrap:wrap;gap:6px;font-size:.8rem;color:var(--muted)}
+.badges{display:flex;flex-wrap:wrap;gap:6px}
+.badge{display:inline-flex;align-items:center;gap:4px;font-size:.75rem;font-weight:500;padding:2px 8px;border-radius:6px;background:var(--soft);color:var(--muted)}
+.badge.late{background:var(--late-bg);color:var(--late)}.badge.alert{background:var(--soon-bg);color:var(--soon)}
+.muted{color:var(--muted);font-size:.85rem;margin:0}
+.late-t{color:var(--late);font-weight:600}.ok-t{color:var(--ok);font-weight:600}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:1px solid var(--accent);background:var(--accent);color:var(--accent-fg);border-radius:8px;padding:10px 16px;font-weight:600;cursor:pointer;min-height:44px}
+.btn.lg{font-size:1.05rem;min-height:52px;width:100%}
+.btn.sm{min-height:34px;padding:6px 12px;font-size:.85rem}
+.btn.outline{background:transparent;color:var(--accent)}
+.btn.ghost{background:transparent;border-color:transparent;color:var(--muted)}
+.btn:disabled{opacity:.5;cursor:default}
+.btn:focus-visible,.chip:focus-visible,.check:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid color-mix(in srgb,var(--accent) 45%,transparent);outline-offset:2px}
+.field{display:flex;flex-direction:column;gap:6px}
+.field>span{font-size:.78rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:600}
+input,select,textarea{width:100%;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:10px 12px;min-height:44px}
+textarea{min-height:80px;resize:vertical}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:480px){.grid2{grid-template-columns:1fr}}
+.check{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:12px;width:100%;min-height:56px;padding:12px 16px;border-radius:12px;border:1px solid var(--line);background:var(--surface);cursor:pointer;text-align:left}
+.check.bad{background:var(--late-bg);border-color:var(--late)}
+.check small{font-size:.75rem;font-weight:600;color:var(--muted)}.check.bad small{color:var(--late)}
+.photos{display:flex;flex-wrap:wrap;gap:8px}
+.photo{position:relative;width:84px;height:84px;border-radius:8px;overflow:hidden;border:1px solid var(--line)}
+.photo img{width:100%;height:100%;object-fit:cover;display:block}
+.photo button{position:absolute;top:2px;right:2px;border:0;background:rgba(0,0,0,.6);color:#fff;border-radius:50%;width:22px;height:22px;cursor:pointer}
+.addphoto{width:84px;height:84px;border-radius:8px;border:1px dashed var(--line);background:var(--surface);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:.7rem;color:var(--muted);cursor:pointer}
+.stars{display:flex;gap:2px}.stars button{font-size:2rem;line-height:1;border:0;background:none;color:var(--line);cursor:pointer;padding:4px}.stars button.on{color:var(--soon)}
+table{width:100%;border-collapse:collapse;font-size:.85rem}th{text-align:left;font-weight:500;color:var(--muted);padding:4px 6px;border-bottom:1px solid var(--line);white-space:nowrap}td{padding:6px;border-bottom:1px solid var(--line);vertical-align:top}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.scroll{overflow-x:auto}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-top:4px solid var(--line);border-radius:12px;padding:12px 16px;display:flex;flex-direction:column;gap:2px}
+.kpi.ok{border-top-color:var(--ok)}.kpi.soon{border-top-color:var(--soon)}.kpi.late{border-top-color:var(--late)}
+.kpi b{font-family:var(--font-display);font-size:2rem;font-weight:500;font-variant-numeric:tabular-nums;line-height:1.1}
+.kpi span{font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+.ex{display:block;border:1px solid var(--line);border-radius:8px;padding:12px;background:var(--surface);cursor:pointer;text-align:left;width:100%}
+.bars{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.bars li{display:grid;grid-template-columns:150px 1fr 32px;align-items:center;gap:8px;font-size:.85rem}
+.bars i{display:block;height:10px;background:var(--soft);border-radius:999px;overflow:hidden}.bars i b{display:block;height:100%;background:var(--accent)}
+.checklist-res{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:4px;font-size:.9rem;list-style:none;margin:0;padding:0}
+.comment{background:var(--soft);padding:12px;border-radius:8px;white-space:pre-wrap;font-size:.9rem;margin:0}
+details summary{cursor:pointer;color:var(--accent);font-weight:500;font-size:.9rem}
+.login{min-height:100%;display:grid;place-items:center;padding:16px}
+.login .card{max-width:420px;width:100%;padding:32px 24px;gap:16px;text-align:center}
+.login .mark{font-size:1.4rem;padding:4px 14px}
+.login .roles{display:flex;flex-direction:column;gap:8px;text-align:left}
+.role{display:flex;justify-content:space-between;align-items:center;gap:8px;border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:12px 14px;cursor:pointer;width:100%;text-align:left}
+.role small{color:var(--muted)}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--tab) + 16px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:999px;font-size:.9rem;z-index:20;max-width:90vw;box-shadow:0 8px 30px rgba(0,0,0,.25);opacity:0;transition:opacity .2s}
+.toast.show{opacity:1}
+@media (min-width:900px){.toast{bottom:24px}}
+.mail{border:1px solid var(--line);border-radius:8px;padding:12px;background:var(--surface);font-size:.85rem}
+.mail pre{white-space:pre-wrap;font-family:inherit;margin:8px 0 0;color:var(--muted)}
+.inline{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.demo{font-size:.75rem;color:var(--muted);text-align:center}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;background:var(--surface);padding:2px}
+.seg button{border:0;background:none;padding:6px 12px;border-radius:999px;font-size:.85rem;font-weight:500;color:var(--muted);cursor:pointer;min-height:34px}
+.seg button.on{background:var(--accent);color:var(--accent-fg)}
+.map{display:block;width:100%;max-width:100%;max-height:60vh;height:auto;margin:0 auto;background:color-mix(in srgb,var(--surface) 70%,var(--bg));border-radius:8px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:.78rem;color:var(--muted);padding:4px 8px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+.route-pick{display:flex;flex-direction:column;gap:6px}
+.pick{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);cursor:pointer}
+.pick.on{border-color:var(--accent);background:var(--accent-soft)}
+.pick input{width:22px;height:22px;min-height:0;margin:0;flex:0 0 auto}
+.route-list{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}
+.route-list li{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line)}
+.route-list .n{width:26px;height:26px;border-radius:50%;background:var(--accent);color:var(--accent-fg);display:grid;place-items:center;font-weight:700;font-size:.85rem;flex:0 0 auto}
+.lmap{width:100%;height:min(60vh,420px);border-radius:8px;background:var(--soft)}
+.ltip{background:var(--surface);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:2px 6px;font:600 11px var(--font-body);box-shadow:none}
+.ltip::before{display:none}
+.daystats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;padding:8px}
+.daystats div{display:flex;flex-direction:column;gap:2px;background:var(--bg);border-radius:8px;padding:8px 10px}
+.daystats b{font-family:var(--font-display);font-size:1.15rem;font-weight:500;font-variant-numeric:tabular-nums}
+.daystats span{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.hint{margin:0 8px 8px;background:var(--accent-soft);color:var(--accent);border-radius:8px;padding:10px 12px;font-size:.88rem;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.timeline{list-style:none;margin:0;padding:0 0 0 18px;border-left:2px solid var(--line);display:flex;flex-direction:column;gap:10px}
+.timeline .tl{position:relative}
+.timeline .tl::before{content:"";position:absolute;left:-25px;top:6px;width:12px;height:12px;border-radius:50%;background:var(--accent);border:2px solid var(--bg)}
+.timeline .tl.done::before{background:var(--ok)}
+.tlh{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:4px}
+.leg{font-size:.8rem;padding:2px 0}
+.prep{font-size:.85rem;background:var(--bg);border-radius:6px;padding:6px 8px}
+.plan{border-left:4px solid var(--accent)}
+.plan.done{border-left-color:var(--ok);opacity:.85}
+.time{font-family:var(--font-display);font-size:1.1rem;font-weight:600;font-variant-numeric:tabular-nums;color:var(--accent)}
+.week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
+@media (max-width:640px){.week{grid-template-columns:1fr}}
+.wday{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.wday.today{border-color:var(--accent)}
+.wday-h{border:0;background:none;text-align:left;padding:2px 0;font-size:.85rem;color:var(--muted);cursor:pointer}
+.wday.today .wday-h{color:var(--accent)}
+.witem{border:0;background:var(--accent-soft);color:var(--accent);border-radius:6px;padding:4px 6px;font-size:.75rem;font-weight:600;text-align:left;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.witem.done{background:var(--soft);color:var(--muted);text-decoration:line-through}
+.wact{font-size:.72rem;color:var(--soon);font-weight:600}
+.month{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:8px}
+.mhead{display:grid;grid-template-columns:repeat(7,1fr);text-align:center;font-size:.72rem;color:var(--muted);margin-bottom:4px}
+.mgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+.mday{border:0;background:none;border-radius:8px;min-height:48px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:3px;padding:4px 0;cursor:pointer;color:var(--fg);font-size:.85rem}
+.mday.other{color:var(--line)}
+.mday.today{background:var(--accent-soft);color:var(--accent);font-weight:700}
+.mday:hover{background:var(--soft)}
+.dots{display:flex;gap:2px;flex-wrap:wrap;justify-content:center;max-width:36px}
+.dots i{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.dots i.done{background:var(--muted)}
+.dots i.act{background:var(--soon)}
+.q{display:flex;flex-direction:column;gap:6px}
+.q .opts{display:flex;gap:6px;flex-wrap:wrap}
+.q .opts button{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:8px 14px;font-size:.85rem;cursor:pointer;min-height:40px}
+.q .opts button.on{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+.more{border:1px dashed var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:12px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:.9rem}
+.kv span:nth-child(odd){color:var(--muted)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div id="root"></div>
+<div id="toast" class="toast" role="status"></div>
+
+<script>
+(() => {
+"use strict";
+// ---------- demo data (dados de exemplo) ----------
+const ISO = n => { const d=new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate()+n); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
+const TODAY = ISO(0);
+const SEED = () => ({
+  settings:{ cadA:14, cadB:30, cadC:91, dormant:90, noShip:14, dueSoon:7, maxNoVisit:30 },
+  reasons:["Visita de cadência","Acompanhamento de ações","Abertura / formação da equipa","Incidente ou reclamação","Inventário / stock","Campanha / merchandising","Outro"],
+  trainings:["Produto / marcas","Técnica de venda","Caixa / sistema","Atendimento","Merchandising"],
+  planned:[
+    {id:1,store:1,sup:1,date:TODAY,time:"10:00",reason:"Visita de cadência",notes:"Ver rutura REF001 e etiquetas.",visitId:null},
+    {id:2,store:2,sup:1,date:TODAY,time:"14:30",reason:"Acompanhamento de ações",notes:"",visitId:null},
+    {id:3,store:3,sup:1,date:ISO(2),time:"11:00",reason:"Abertura / formação da equipa",notes:"Primeira visita · levar plano de merchandising.",visitId:null},
+    {id:4,store:7,sup:1,date:ISO(3),time:"15:00",reason:"Visita de cadência",notes:"",visitId:null},
+    {id:5,store:4,sup:2,date:TODAY,time:"09:30",reason:"Acompanhamento de ações",notes:"Montra campanha.",visitId:null},
+    {id:6,store:5,sup:2,date:ISO(1),time:"10:00",reason:"Visita de cadência",notes:"Sem visita há 2 meses.",visitId:null},
+    {id:7,store:8,sup:2,date:ISO(1),time:"14:00",reason:"Incidente ou reclamação",notes:"Seguimento da reclamação.",visitId:null},
+    {id:8,store:6,sup:2,date:ISO(7),time:"11:00",reason:"Visita de cadência",notes:"",visitId:null}],
+  users:[{id:1,name:"Ana Ribeiro",email:"ana.ribeiro@exemplo.pt",role:"sup"},{id:2,name:"Miguel Costa",email:"miguel.costa@exemplo.pt",role:"sup"},{id:9,name:"Sede",email:"sede@exemplo.pt",role:"admin"}],
+  items:[
+    {id:1,label:"Merchandising",action:"Repor a implantação conforme o plano de merchandising em vigor (montras, gôndolas, testers).",days:7,owner:"Responsável loja",active:true},
+    {id:2,label:"Limpeza",action:"Limpeza completa da loja (vitrines, espelhos, testers, chão, provador).",days:2,owner:"Responsável loja",active:true},
+    {id:3,label:"Apresentação da equipa",action:"Relembrar à equipa as regras de farda e apresentação.",days:3,owner:"Responsável loja",active:true},
+    {id:4,label:"Stock / reposição",action:"Verificar ruturas e fazer pedido de reposição ao armazém.",days:5,owner:"Supervisor",active:true},
+    {id:5,label:"Afixação de preços",action:"Corrigir etiquetas de preço e cartazes de promoção em falta ou errados.",days:2,owner:"Responsável loja",active:true},
+    {id:6,label:"Briefing da equipa",action:"Fazer o briefing da equipa (objetivos do mês, promoções, novidades).",days:7,owner:"Responsável loja",active:true}],
+  stores:[
+    {id:1,name:"P&C Colombo",code:"L001",city:"Lisboa",address:"CC Colombo, Av. Lusíada, loja 0.112",phone:"+351 21 000 0001",hours:"10h–23h",team:6,manager:"Sofia Martins",email:"loja.colombo@exemplo.pt",cad:"A",tempCad:null,tempUntil:null,sup:1,active:true,lat:38.7536,lng:-9.1886,priority:"Normal",notes:"Loja de referência da zona. Testers muito solicitados ao fim de semana."},
+    {id:2,name:"P&C Vasco da Gama",code:"L002",city:"Lisboa",address:"CC Vasco da Gama, piso 1",phone:"+351 21 000 0002",hours:"10h–23h",team:4,manager:"Rui Lopes",email:"loja.vascodagama@exemplo.pt",cad:"B",tempCad:null,tempUntil:null,sup:1,active:true,lat:38.7682,lng:-9.0967,priority:"Normal",notes:""},
+    {id:3,name:"P&C Cascais",code:"L003",city:"Cascais",address:"CascaiShopping, piso 0",phone:"+351 21 000 0003",hours:"10h–23h",team:5,manager:"Inês Carvalho",email:"loja.cascais@exemplo.pt",cad:"C",tempCad:"A",tempUntil:"2026-12-31",sup:1,active:true,lat:38.7071,lng:-9.4213,priority:"Alta",notes:"Abertura em outubro: equipa nova, cadência temporária A até fim do ano."},
+    {id:7,name:"P&C Setúbal",code:"L004",city:"Setúbal",address:"Alegro Setúbal, piso 1",phone:"+351 26 000 0004",hours:"10h–22h",team:3,manager:"Marta Reis",email:"loja.setubal@exemplo.pt",cad:"B",tempCad:null,tempUntil:null,sup:1,active:true,lat:38.5244,lng:-8.8882,priority:"Normal",notes:""},
+    {id:4,name:"P&C NorteShopping",code:"L010",city:"Matosinhos",address:"NorteShopping, piso 0",phone:"+351 22 000 0010",hours:"10h–23h",team:7,manager:"Pedro Silva",email:"loja.norteshopping@exemplo.pt",cad:"A",tempCad:null,tempUntil:null,sup:2,active:true,lat:41.1813,lng:-8.6494,priority:"Normal",notes:""},
+    {id:5,name:"P&C Braga Parque",code:"L011",city:"Braga",address:"Braga Parque, piso 1",phone:"+351 25 000 0011",hours:"10h–23h",team:4,manager:"Carla Mendes",email:"loja.braga@exemplo.pt",cad:"B",tempCad:null,tempUntil:null,sup:2,active:true,lat:41.5607,lng:-8.4030,priority:"Alta",notes:"Resultados abaixo do objetivo há 2 meses."},
+    {id:8,name:"P&C Guimarães",code:"L012",city:"Guimarães",address:"Guimarães Shopping, piso 0",phone:"+351 25 000 0012",hours:"10h–23h",team:3,manager:"Tiago Sousa",email:"loja.guimaraes@exemplo.pt",cad:"C",tempCad:null,tempUntil:null,sup:2,active:true,lat:41.4425,lng:-8.2918,priority:"Normal",notes:""},
+    {id:6,name:"P&C Coimbra",code:"L020",city:"Coimbra",address:"Forum Coimbra, piso 1",phone:"+351 23 000 0020",hours:"10h–23h",team:4,manager:"João Ferreira",email:"loja.coimbra@exemplo.pt",cad:"C",tempCad:null,tempUntil:null,sup:2,active:true,lat:40.1902,lng:-8.4318,priority:"Baixa",notes:""}],
+  visits:[
+    {id:1,store:1,sup:1,at:"2026-10-20T10:30",reason:"Visita de cadência",rating:3,comment:"Provador com pó; 3 etiquetas de promoção em falta na gôndola central.",bad:[2,5],photos:[],lat:38.753,lng:-9.188,sent:true,extra:{managerPresent:"Sim",staff:4,salesFeel:"Em linha",promoOk:"Sim",competition:"Nova perfumaria concorrente a abrir no piso 1 em novembro.",training:["Merchandising"],nextSteps:"Rever implantação da gôndola central com a responsável.",followUp:"",priority:"Normal"}},
+    {id:2,store:2,sup:1,at:"2026-09-28T15:00",reason:"Visita de cadência",rating:5,comment:"Tudo conforme.",bad:[],photos:[],sent:true},
+    {id:5,store:7,sup:1,at:"2026-09-12T11:00",reason:"Campanha / merchandising",rating:4,comment:"Montra de Natal montada com a equipa.",bad:[],photos:[],sent:true},
+    {id:3,store:4,sup:2,at:"2026-10-15T09:15",reason:"Acompanhamento de ações",rating:4,comment:"Montra ainda com a campanha anterior.",bad:[1],photos:[],sent:true},
+    {id:6,store:8,sup:2,at:"2026-10-02T16:00",reason:"Incidente ou reclamação",rating:3,comment:"Reclamação de cliente sobre troca; procedimento relembrado.",bad:[3],photos:[],sent:true},
+    {id:4,store:5,sup:2,at:"2026-08-10T11:00",reason:"Visita de cadência",rating:4,comment:"",bad:[],photos:[],sent:true}],
+  actions:[
+    {id:1,store:1,visit:1,item:2,title:"Limpeza – P&C Colombo",owner:"Responsável loja",status:"open",due:"2026-10-22",notes:"Limpeza completa da loja (vitrines, espelhos, testers, chão, provador)."},
+    {id:2,store:1,visit:1,item:5,title:"Afixação de preços – P&C Colombo",owner:"Responsável loja",status:"done",due:"2026-10-22",notes:"Corrigir etiquetas de preço e cartazes de promoção em falta ou errados."},
+    {id:3,store:4,visit:3,item:1,title:"Merchandising – P&C NorteShopping",owner:"Responsável loja",status:"in_progress",due:"2026-10-29",notes:"Repor a implantação conforme o plano de merchandising em vigor."},
+    {id:4,store:8,visit:6,item:3,title:"Apresentação da equipa – P&C Guimarães",owner:"Responsável loja",status:"open",due:"2026-10-05",notes:"Relembrar à equipa as regras de farda e apresentação."}],
+  stock:[
+    {site:"L001",ref:"REF001",des:"Eau de parfum best-seller 50ml",qty:0,last:"2026-10-20",top:true},
+    {site:"L001",ref:"REF002",des:"Creme corpo 200ml",qty:12,last:"2026-06-01",top:false},
+    {site:"L001",ref:"REF003",des:"Coffret Natal",qty:8,last:"2026-10-25",top:true},
+    {site:"L010",ref:"REF001",des:"Eau de parfum best-seller 50ml",qty:5,last:"2026-10-24",top:true},
+    {site:"L010",ref:"REF004",des:"Vela perfumada",qty:0,last:"2026-10-18",top:true}],
+  shipments:[
+    {no:"EXP-2026-1001",site:"L001",date:"2026-10-20",lines:14,sent:120,recv:118,status:"discrepancy"},
+    {no:"EXP-2026-1002",site:"L001",date:"2026-10-24",lines:6,sent:40,recv:0,status:"in_transit"},
+    {no:"EXP-2026-1003",site:"L010",date:"2026-10-05",lines:9,sent:75,recv:75,status:"received"},
+    {no:"EXP-2026-1004",site:"L011",date:"2026-10-22",lines:11,sent:90,recv:90,status:"received"}],
+  kpis:[{site:"L001",month:"2026-09",sales:82000,target:85000,traffic:9800,tickets:1420},{site:"L010",month:"2026-09",sales:61000,target:55000,traffic:7100,tickets:1105}],
+  outbox:[], imports:[]
+});
+
+// ---------- state ----------
+const KEY="pc-supervisores-proto-v1";
+let S; try{ S = JSON.parse(localStorage.getItem(KEY)||"null"); }catch(e){ S=null; }
+if(!S||!S.stores||!S.reasons||!S.planned||S.settings.maxNoVisit===undefined) S = SEED(); // versão antiga dos dados guardados → repor exemplo
+let UI = { user:null, screen:"lojas", storeId:null, filter:"all", supFilter:"all", actTab:"open", sedeTab:"painel", draft:null, view:"lista", routeSel:null, routeStart:"first", mapSel:null, myPos:null, agView:"hoje", agDate:TODAY, plan:null, planId:null, more:false };
+try{ const u = JSON.parse(sessionStorage.getItem(KEY+"-ui")||"null"); if(u) UI = {...UI, ...u, draft:null}; }catch(e){}
+const save = () => { try{ localStorage.setItem(KEY, JSON.stringify(S)); sessionStorage.setItem(KEY+"-ui", JSON.stringify({user:UI.user,screen:UI.screen,storeId:UI.storeId,sedeTab:UI.sedeTab})); }catch(e){} };
+
+// ---------- helpers ----------
+const $ = (s,el=document)=>el.querySelector(s);
+const esc = s => String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const pad = n => String(n).padStart(2,"0");
+const today = () => { const d=new Date(); d.setHours(0,0,0,0); return d; };
+const dayOf = d => { const x=new Date(d); x.setHours(0,0,0,0); return x; };
+const addDays = (d,n) => { const x=new Date(d); x.setDate(x.getDate()+n); return x; };
+const daysBetween = (a,b) => Math.round((dayOf(b)-dayOf(a))/86400000);
+const iso = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const fmtDay = d => d? `${pad(new Date(d).getDate())}/${pad(new Date(d).getMonth()+1)}` : "—";
+const fmtDate = d => d? `${fmtDay(d)}/${new Date(d).getFullYear()}` : "—";
+const fmtDT = d => d? `${fmtDate(d)} ${pad(new Date(d).getHours())}:${pad(new Date(d).getMinutes())}` : "—";
+const money = n => n==null? "—" : new Intl.NumberFormat("pt-PT",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(n);
+const nextId = arr => arr.reduce((m,x)=>Math.max(m,x.id),0)+1;
+const user = () => S.users.find(u=>u.id===UI.user);
+const isAdmin = () => user()?.role==="admin";
+const cadDays = c => c==="A"? S.settings.cadA : c==="B"? S.settings.cadB : S.settings.cadC;
+const effCad = s => (s.tempCad && s.tempUntil && dayOf(s.tempUntil)>=today()) ? s.tempCad : s.cad;
+const shipLabel = s => s==="in_transit"?"Em trânsito":s==="received"?"Recebida":"Diferença";
+const actLabel = s => s==="open"?"Aberta":s==="in_progress"?"Em curso":"Feita";
+let toastT; const toast = m => { const t=$("#toast"); t.textContent=m; t.classList.add("show"); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove("show"),3500); };
+
+function summary(s){
+  const t=today();
+  const vs = S.visits.filter(v=>v.store===s.id).sort((a,b)=>b.at.localeCompare(a.at));
+  const last = vs[0]? new Date(vs[0].at) : null;
+  const cad = effCad(s);
+  const next = last? dayOf(addDays(last, cadDays(cad))) : t;
+  const daysUntil = daysBetween(t,next);
+  const status = !last? "never" : daysUntil<0? "late" : daysUntil<=S.settings.dueSoon? "soon" : "ok";
+  const statusText = status==="never"?"Nunca visitada": status==="late"?`Atrasada ${-daysUntil} d`: status==="soon"?(daysUntil===0?"Visitar hoje":`Visitar até ${fmtDay(next)}`):`Em dia · ${fmtDay(next)}`;
+  const acts = S.actions.filter(a=>a.store===s.id && a.status!=="done");
+  const late = acts.filter(a=>dayOf(a.due)<t).length;
+  const st = S.stock.filter(x=>x.site===s.code);
+  const ruptures = st.filter(x=>x.qty<=0).length;
+  const dormant = st.filter(x=>x.qty>0 && (!x.last || daysBetween(x.last,t)>S.settings.dormant)).length;
+  const sh = S.shipments.filter(x=>x.site===s.code);
+  const lastShip = sh.length? sh.map(x=>x.date).sort().slice(-1)[0] : null;
+  const inTransit = sh.filter(x=>x.status==="in_transit").length;
+  const disc = sh.filter(x=>x.status==="discrepancy"||(x.status==="received"&&x.sent!==x.recv)).length;
+  const alerts=[];
+  if(ruptures) alerts.push(`${ruptures} rutura(s) em referências chave`);
+  if(dormant) alerts.push(`${dormant} referência(s) com stock dormente`);
+  if(disc) alerts.push(`${disc} envio(s) com diferença de receção`);
+  if(late) alerts.push(`${late} ação(ões) em atraso`);
+  if(lastShip && daysBetween(lastShip,t)>S.settings.noShip) alerts.push(`Sem envio do armazém há ${daysBetween(lastShip,t)} dias`);
+  const noVisitDays = last? daysBetween(last,t) : null;
+  const noVisit = !last || noVisitDays>S.settings.maxNoVisit;
+  if(noVisit) alerts.unshift(last? `Sem visita há ${noVisitDays} dias (limite ${S.settings.maxNoVisit})` : "Nunca visitada");
+  const visits30 = vs.filter(v=>daysBetween(v.at,t)<=30).length;
+  return {...s, cadE:cad, last, next, daysUntil, status, statusText, open:acts.length, late, ruptures, dormant, lastShip, inTransit, disc, alerts, visits30, noVisit, noVisitDays, lastReason:vs[0]?.reason||"", supName:S.users.find(u=>u.id===s.sup)?.name||"—"};
+}
+// ---------- map & route ----------
+const PT_OUTLINE=[[41.87,-8.87],[41.69,-8.85],[41.38,-8.77],[41.15,-8.68],[41.0,-8.65],[40.64,-8.75],[40.15,-8.87],[39.6,-9.08],[39.36,-9.38],[38.97,-9.42],[38.78,-9.5],[38.69,-9.42],[38.7,-9.15],[38.63,-9.24],[38.52,-8.9],[37.95,-8.87],[37.72,-8.78],[37.43,-8.8],[37.0,-8.94],[37.1,-8.67],[37.13,-8.53],[37.0,-7.93],[37.12,-7.65],[37.19,-7.41],[37.6,-7.47],[38.0,-7.2],[38.4,-7.3],[38.7,-7.1],[38.88,-7.0],[39.1,-7.15],[39.5,-7.0],[39.7,-6.9],[40.0,-7.0],[40.3,-6.85],[40.6,-6.8],[41.0,-6.9],[41.3,-6.3],[41.5,-6.2],[41.7,-6.45],[41.95,-6.6],[41.95,-7.0],[41.85,-7.5],[41.9,-7.9],[42.1,-8.2],[42.05,-8.6]];
+const PT_CITIES=[["Lisboa",38.72,-9.14],["Porto",41.15,-8.61],["Coimbra",40.21,-8.43],["Braga",41.55,-8.42],["Faro",37.02,-7.93],["Évora",38.57,-7.91],["Aveiro",40.64,-8.65],["Setúbal",38.52,-8.89],["Leiria",39.74,-8.81],["Viseu",40.66,-7.91]];
+const MAP={lat0:42.3,lng0:-9.7,kx:78,ky:100,w:300,h:545};
+// Leaflet (mapa real) só na versão local: a versão publicada usa o SVG.
+function mountLeaflet(){
+  if(!window.L) return;
+  document.querySelectorAll(".lmap").forEach(el=>{
+    const stores=JSON.parse(el.dataset.stores), route=JSON.parse(el.dataset.route||"[]");
+    const map=L.map(el,{zoomControl:true,attributionControl:true,scrollWheelZoom:false});
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{attribution:"© OpenStreetMap",maxZoom:19}).addTo(map);
+    const col={ok:"#2f7a4f",soon:"#c27a12",late:"#b8362f",never:"#b8362f"};
+    const pts=[];
+    stores.forEach(s=>{ if(s.lat==null) return; pts.push([s.lat,s.lng]); const i=route.indexOf(s.id);
+      const m=L.circleMarker([s.lat,s.lng],{radius:i>=0?12:9,color:"#fff",weight:2.5,fillColor:col[s.status],fillOpacity:1}).addTo(map);
+      m.bindTooltip(`${i>=0?(i+1)+". ":""}${s.name}`,{permanent:true,direction:"right",offset:[10,0],className:"ltip"});
+      m.on("click",()=>{ UI.mapSel=UI.mapSel===s.id?null:s.id; render(); }); });
+    if(route.length>1) L.polyline(route.map(id=>{const s=stores.find(x=>x.id===id);return [s.lat,s.lng];}),{color:"#5b2a4a",weight:3,dashArray:"6 5"}).addTo(map);
+    if(pts.length) map.fitBounds(pts,{padding:[40,40],maxZoom:12});
+    setTimeout(()=>map.invalidateSize(),50);
+  });
+}
+const px = (lat,lng) => [ (lng-MAP.lng0)*MAP.kx, (MAP.lat0-lat)*MAP.ky ];
+const km = (a,b) => { if(a.lat==null||b.lat==null) return 0; const R=6371,d2r=Math.PI/180; const dLat=(b.lat-a.lat)*d2r,dLng=(b.lng-a.lng)*d2r; const h=Math.sin(dLat/2)**2+Math.cos(a.lat*d2r)*Math.cos(b.lat*d2r)*Math.sin(dLng/2)**2; return 2*R*Math.asin(Math.sqrt(h))*1.25; }; // ×1.25 ≈ estrada vs linha reta
+// Navegação direta: o Google Maps (app no telemóvel) arranca a partir da posição atual.
+const navUrl = s => s.lat!=null ? `https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lng}&travelmode=driving&dir_action=navigate` : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((s.address?s.address+", ":"")+s.city+", Portugal")}`;
+const wazeUrl = s => s.lat!=null ? `https://waze.com/ul?ll=${s.lat},${s.lng}&navigate=yes` : "";
+const navBtn = (s,cls="btn sm outline") => `<a class="${cls}" href="${navUrl(s)}" target="_blank" rel="noreferrer">🧭 Ir para a loja</a>`;
+const routeKm = (start,o) => o.reduce((s,x,i)=>s+km(i?o[i-1]:start,x),0);
+function planRoute(start, stops){ // ≤8 paragens: ótimo exato (todas as permutações); senão vizinho mais próximo + 2-opt
+  if(stops.length<=8){ let best=null,bestD=Infinity; const perm=(arr,acc)=>{ if(!arr.length){ const d=routeKm(start,acc); if(d<bestD){bestD=d;best=acc.slice();} return; } for(let i=0;i<arr.length;i++){ const rest=arr.slice(0,i).concat(arr.slice(i+1)); acc.push(arr[i]); perm(rest,acc); acc.pop(); } }; perm(stops,[]); return best||[]; }
+  let rest=[...stops], cur=start, order=[];
+  while(rest.length){ rest.sort((a,b)=>km(cur,a)-km(cur,b)); cur=rest.shift(); order.push(cur); }
+  let improved=true; while(improved&&order.length>3){ improved=false; for(let i=0;i<order.length-1;i++)for(let j=i+1;j<order.length;j++){ const o2=order.slice(0,i).concat(order.slice(i,j+1).reverse(),order.slice(j+1)); if(routeKm(start,o2)<routeKm(start,order)-0.1){order=o2;improved=true;} } }
+  return order;
+}
+const DRIVE_KMH=70, VISIT_MIN=45;
+// Horário detalhado de um dia: chegada, visita, deslocação para a etapa seguinte.
+function schedule(start, order, startMin){
+  let t=startMin; const rows=[];
+  order.forEach((s,i)=>{ const from=i?order[i-1]:start; const d=from&&from!==s?km(from,s):0; const drive=Math.round(d/DRIVE_KMH*60); t+=drive; rows.push({s,d,drive,arrive:t,leave:t+VISIT_MIN}); t+=VISIT_MIN; });
+  return rows;
+}
+const hm = m => `${pad(Math.floor(m/60))}:${pad(m%60)}`;
+function MapSVG(stores, route, selected){
+  if(window.L){ const slim=stores.map(s=>({id:s.id,name:s.name.replace("P&C ",""),lat:s.lat,lng:s.lng,status:s.status})); return `<div class="lmap" data-stores='${esc(JSON.stringify(slim))}' data-route='${esc(JSON.stringify((route||[]).map(s=>s.id)))}'></div>`; }
+  const pts=stores.filter(s=>s.lat!=null);
+  // enquadra o mapa nas lojas mostradas (zoom automático), mantendo o contorno do país
+  let vb=[0,0,MAP.w,MAP.h];
+  if(pts.length){ const xs=pts.map(s=>px(s.lat,s.lng)); let x0=Math.min(...xs.map(p=>p[0])),x1=Math.max(...xs.map(p=>p[0])),y0=Math.min(...xs.map(p=>p[1])),y1=Math.max(...xs.map(p=>p[1]));
+    let w=Math.max(x1-x0,60), h=Math.max(y1-y0,60); const cx=(x0+x1)/2, cy=(y0+y1)/2; w*=1.6; h*=1.5; const ratio=MAP.w/MAP.h; if(w/h<ratio) w=h*ratio; else h=w/ratio; if(w>MAP.w){w=MAP.w;h=MAP.h;}
+    vb=[Math.min(Math.max(cx-w/2,-10),MAP.w-w+10), Math.min(Math.max(cy-h/2,-10),MAP.h-h+10), w, h]; }
+  const f=vb[2]/MAP.w; // factor de escala: tamanhos constantes no ecrã
+  const outline=PT_OUTLINE.map(p=>px(...p).map(n=>n.toFixed(1)).join(",")).join(" ");
+  const col=s=>s.status==="ok"?"var(--ok)":s.status==="soon"?"var(--soon)":"var(--late)";
+  const path=route&&route.length>1? `<polyline points="${route.map(s=>px(s.lat,s.lng).map(n=>n.toFixed(1)).join(",")).join(" ")}" fill="none" stroke="var(--accent)" stroke-width="${2.5*f}" stroke-dasharray="${5*f} ${4*f}" stroke-linejoin="round"/>`:"";
+  const marks=pts.map(s=>{const [x,y]=px(s.lat,s.lng); const i=route?route.indexOf(s):-1; const sel=selected===s.id; return `<g class="mk" data-mapstore="${s.id}" style="cursor:pointer"><circle cx="${x}" cy="${y}" r="${(sel?13:9)*f}" fill="${col(s)}" stroke="var(--surface)" stroke-width="${2.5*f}"/>${i>=0?`<text x="${x}" y="${y+4*f}" text-anchor="middle" font-size="${11*f}" font-weight="700" fill="#fff">${i+1}</text>`:""}</g>`;}).join("");
+  const labels=pts.map((s,k)=>{const [x,y]=px(s.lat,s.lng); const up=k%2===0; return `<text x="${x+12*f}" y="${y+(up?-6:12)*f}" font-size="${10.5*f}" fill="var(--fg)" font-family="var(--font-body)" pointer-events="none" paint-order="stroke" stroke="var(--surface)" stroke-width="${3*f}" stroke-linejoin="round">${esc(s.name.replace("P&C ",""))}</text>`;}).join("");
+  const near=(lat,lng)=>pts.some(s=>Math.abs(s.lat-lat)<0.12*Math.max(f,0.3)&&Math.abs(s.lng-lng)<0.15*Math.max(f,0.3));
+  const cities=PT_CITIES.filter(c=>!near(c[1],c[2])).map(([n,la,lo])=>{const [x,y]=px(la,lo); if(x<vb[0]||x>vb[0]+vb[2]||y<vb[1]||y>vb[1]+vb[3]) return ""; return `<g pointer-events="none"><circle cx="${x}" cy="${y}" r="${2.2*f}" fill="var(--muted)"/><text x="${x+5*f}" y="${y+3*f}" font-size="${8.5*f}" fill="var(--muted)" font-family="var(--font-body)">${n}</text></g>`;}).join("");
+  const grid=[...Array(7)].map((_,i)=>{const la=37+i; const y=px(la,0)[1]; return `<line x1="0" x2="${MAP.w}" y1="${y}" y2="${y}" stroke="var(--line)" stroke-width="${0.6*f}" stroke-dasharray="${2*f} ${4*f}"/>`;}).join("");
+  return `<svg viewBox="${vb.map(n=>n.toFixed(1)).join(" ")}" class="map" role="img" aria-label="Mapa das lojas">${grid}<polygon points="${outline}" fill="var(--soft)" stroke="var(--muted)" stroke-width="${1.2*f}" stroke-linejoin="round"/>${cities}${path}${marks}${labels}</svg>`;
+}
+const myStores = () => S.stores.filter(s=>s.active && (isAdmin()||s.sup===UI.user)).map(summary);
+
+// ---------- icons ----------
+const I = {
+  store:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l1-5h16l1 5"/><path d="M3 9a3 3 0 006 0 3 3 0 006 0 3 3 0 006 0"/><path d="M5 11v9h14v-9"/><path d="M10 20v-5h4v5"/></svg>',
+  plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>',
+  check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 12l2 2 4-4"/></svg>',
+  hq:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 21V5l8-3 8 3v16"/><path d="M9 9h2M13 9h2M9 13h2M13 13h2M9 17h2M13 17h2"/></svg>',
+  out:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><path d="M10 17l5-5-5-5M15 12H3M21 3v18"/></svg>',
+  cam:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="22" height="22"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',
+  cal:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>'
+};
+
+// ---------- render ----------
+const root = $("#root");
+function render(){
+  save();
+  if(!UI.user){ root.innerHTML = Login(); bind(); return; }
+  if(UI.screen==="sede" && !isAdmin()) UI.screen="lojas";
+  const tabs = [["lojas","Lojas",I.store],["agenda","Agenda",I.cal],["nova","Visita",I.plus],["acoes","Ações",I.check]].concat(isAdmin()?[["sede","Sede",I.hq]]:[]);
+  const active = UI.screen==="loja"?"lojas":UI.screen==="plan"?"agenda":UI.screen;
+  const u=user();
+  root.innerHTML = `<div class="app">
+    <header class="top"><div class="brand"><span class="mark">P&amp;C</span>Supervisores</div>
+      <div class="who"><span>${esc(u.name)}</span><button class="link" data-act="logout" aria-label="Sair">${I.out}</button></div></header>
+    <nav class="tabs" aria-label="Navegação">${tabs.map(([k,l,ic])=>`<button data-go="${k}" class="${active===k?"on":""}">${ic}<span>${l}</span></button>`).join("")}</nav>
+    <main>${({lojas:Lojas,loja:Loja,nova:Nova,acoes:Acoes,sede:Sede,agenda:Agenda,plan:Plan})[UI.screen]()}</main></div>`;
+  bind(); mountLeaflet();
+}
+function go(screen, storeId){ UI.screen=screen; if(storeId!==undefined) UI.storeId=storeId; if(screen!=="nova") UI.draft=null; window.scrollTo(0,0); render(); }
+
+function Login(){
+  return `<div class="login"><div class="card">
+    <div><span class="mark">P&amp;C</span><h1 style="margin-top:12px">Supervisores</h1><p class="muted">Visitas às lojas · Perfumes &amp; Companhia</p></div>
+    <p class="muted" style="text-align:left">Protótipo para teste: escolha com quem entrar. Os dados são de exemplo e ficam guardados só neste telemóvel/browser.</p>
+    <div class="roles">${S.users.map(u=>`<button class="role" data-login="${u.id}"><span>${esc(u.name)}<br><small>${u.role==="admin"?"Sede · painel, configuração, import":"Supervisor · "+S.stores.filter(s=>s.sup===u.id).length+" lojas"}</small></span><span>›</span></button>`).join("")}</div>
+    <button class="btn ghost sm" data-act="reset">Repor dados de exemplo</button>
+  </div></div>`;
+}
+
+function statusChip(s){ return `<span class="status s-${s.status}">${esc(s.statusText)}</span>`; }
+
+function Lojas(){
+  let list = myStores();
+  if(isAdmin() && UI.supFilter!=="all") list = list.filter(s=>String(s.sup)===UI.supFilter);
+  const counts = {all:list.length, late:list.filter(s=>s.status==="late"||s.status==="never").length, soon:list.filter(s=>s.status==="soon").length, alerts:list.filter(s=>s.alerts.length).length};
+  if(UI.filter==="late") list=list.filter(s=>s.status==="late"||s.status==="never");
+  if(UI.filter==="soon") list=list.filter(s=>s.status==="soon");
+  if(UI.filter==="alerts") list=list.filter(s=>s.alerts.length);
+  list.sort((a,b)=>a.daysUntil-b.daysUntil);
+  const head=`<div class="row"><h1>${isAdmin()?"Lojas":"As minhas lojas"}</h1><div class="inline">${isAdmin()?`<select id="supFilter" style="width:auto;min-width:160px"><option value="all">Todos os supervisores</option>${S.users.filter(u=>u.role==="sup").map(u=>`<option value="${u.id}" ${UI.supFilter==String(u.id)?"selected":""}>${esc(u.name)}</option>`).join("")}</select>`:""}
+    <div class="seg" role="tablist">${[["lista","Lista"],["mapa","Mapa"],["rota","Rota"]].map(([k,l])=>`<button class="${UI.view===k?"on":""}" data-view="${k}" role="tab" aria-selected="${UI.view===k}">${l}</button>`).join("")}</div></div></div>`;
+  if(UI.view==="mapa") return head+MapView(myStoresFiltered());
+  if(UI.view==="rota") return head+RouteView(myStoresFiltered());
+  return head+`<div class="chips" role="tablist">${[["all","Todas"],["late","🔴 Atrasadas"],["soon","🟠 Esta semana"],["alerts","⚠️ Alertas"]].map(([k,l])=>`<button class="chip ${UI.filter===k?"on":""}" data-filter="${k}" role="tab" aria-selected="${UI.filter===k}">${l} <b>${counts[k]}</b></button>`).join("")}</div>
+  ${list.length? `<ul class="list">${list.map(s=>`<li><button class="card store-card" data-store="${s.id}"><div class="body">
+      <div class="row"><span class="name">${esc(s.name)}</span>${statusChip(s)}</div>
+      <div class="meta"><span>${esc(s.city)}</span><span>·</span><span>Cadência ${s.cadE}${s.tempCad&&s.cadE===s.tempCad?" (temp.)":""}</span><span>·</span><span>Última visita ${s.last?fmtDate(s.last):"—"}${s.lastReason?` · ${esc(s.lastReason)}`:""}</span>${isAdmin()?`<span>·</span><span>${esc(s.supName)}</span>`:""}</div>
+      <div class="badges">${s.noVisit&&s.last?`<span class="badge late">⏱ Sem visita há ${s.noVisitDays} dias</span>`:""}${s.open?`<span class="badge ${s.late?"late":""}">${s.open} ação(ões)${s.late?` · ${s.late} em atraso`:""}</span>`:""}${s.alerts.filter(a=>!a.includes("ação")&&!a.startsWith("Sem visita")&&a!=="Nunca visitada").map(a=>`<span class="badge alert">⚠️ ${esc(a)}</span>`).join("")}</div>
+    </div><span style="color:var(--muted)">›</span></button><div class="inline" style="margin-top:-6px;padding:0 4px 4px">${navBtn(s,"btn sm ghost")}</div></li>`).join("")}</ul>`
+    : `<p class="muted" style="text-align:center;padding:32px 0">${UI.filter==="all"?"Nenhuma loja atribuída.":"Nada a assinalar. 👍"}</p>`}
+  <p class="demo">Dados de exemplo · protótipo</p>`;
+}
+function myStoresFiltered(){ let l=myStores(); if(isAdmin()&&UI.supFilter!=="all") l=l.filter(s=>String(s.sup)===UI.supFilter); return l; }
+function MapView(list){
+  const sel = list.find(s=>s.id===UI.mapSel);
+  const counts={late:list.filter(s=>s.status==="late"||s.status==="never").length,soon:list.filter(s=>s.status==="soon").length,ok:list.filter(s=>s.status==="ok").length};
+  return `<section class="card" style="padding:8px"><div class="legend"><span><i style="background:var(--late)"></i>Atrasada / nunca ${counts.late}</span><span><i style="background:var(--soon)"></i>Esta semana ${counts.soon}</span><span><i style="background:var(--ok)"></i>Em dia ${counts.ok}</span></div>${MapSVG(list,null,UI.mapSel)}<p class="muted" style="text-align:center">Toque num ponto para ver a loja.</p></section>
+  ${sel?`<div class="card"><div class="row"><span class="name">${esc(sel.name)}</span>${statusChip(sel)}</div><div class="meta"><span>${esc(sel.city)}</span><span>·</span><span>Última visita ${sel.last?fmtDate(sel.last):"—"}</span>${sel.lastReason?`<span>·</span><span>${esc(sel.lastReason)}</span>`:""}</div>${sel.alerts.length?`<div class="badges">${sel.alerts.map(a=>`<span class="badge alert">⚠️ ${esc(a)}</span>`).join("")}</div>`:""}<div class="inline">${navBtn(sel)}<button class="btn sm" data-store="${sel.id}">Ficha</button><button class="btn sm ghost" data-nova="${sel.id}">Nova visita</button></div></div>`:""}`;
+}
+function RouteView(list){
+  if(UI.routeSel===null) UI.routeSel = list.filter(s=>s.status!=="ok"||s.noVisit).map(s=>s.id);
+  const chosen = list.filter(s=>UI.routeSel.includes(s.id)&&s.lat!=null);
+  const startOpts=[["first","Primeira loja da lista"],["me","A minha posição (GPS)"]].concat(list.filter(s=>s.lat!=null).map(s=>["s"+s.id,"Partir de "+s.name]));
+  let start=null, order=[];
+  if(chosen.length){
+    if(UI.routeStart==="me"&&UI.myPos) start=UI.myPos;
+    else if(UI.routeStart.startsWith("s")) start=list.find(s=>"s"+s.id===UI.routeStart)||chosen[0];
+    else start=chosen[0];
+    order=planRoute(start, chosen.filter(s=>s!==start));
+    if(start===chosen[0]||chosen.includes(start)) order=[start,...order.filter(s=>s!==start)];
+  }
+  const legs=order.map((s,i)=>({s,d:i===0?(start&&start!==s?km(start,s):0):km(order[i-1],s)}));
+  const totalKm=Math.round(legs.reduce((a,l)=>a+l.d,0));
+  const sched=schedule(start&&!chosen.includes(start)?start:null,order,570);
+  const minutes=Math.round(totalKm/70*60)+order.length*45;
+  const gmaps=order.length?`https://www.google.com/maps/dir/${(UI.routeStart==="me"&&UI.myPos?[UI.myPos]:[]).concat(order).map(p=>`${p.lat},${p.lng}`).join("/")}`:"";
+  const naive=chosen.length>1?routeKm(chosen[0],chosen.slice(1)):0;
+  return `<section class="card"><div class="row"><h2>Planear o dia</h2><span class="muted">${chosen.length} loja(s)</span></div>
+    <p class="muted">Pré-selecionadas: lojas atrasadas, a visitar esta semana ou sem visita há mais de ${S.settings.maxNoVisit} dias. Ajuste e a ordem é calculada pela distância (ótimo exato até 8 lojas).${chosen.length>1&&naive-totalKm>=2?` Pela ordem da lista seriam ≈ ${Math.round(naive)} km; a rota sugerida poupa ${Math.round(naive-totalKm)} km.`:""}</p>
+    <div class="route-pick">${list.map(s=>`<label class="pick ${UI.routeSel.includes(s.id)?"on":""}"><input type="checkbox" data-route="${s.id}" ${UI.routeSel.includes(s.id)?"checked":""}><span class="status s-${s.status}" style="padding:2px 6px 2px 6px"></span><span style="flex:1;min-width:0"><b>${esc(s.name)}</b><br><small class="muted">${esc(s.city)} · ${esc(s.statusText)}${s.lat==null?" · sem coordenadas":""}</small></span></label>`).join("")}</div>
+    <label class="field"><span>Ponto de partida</span><select id="routeStart">${startOpts.map(([v,l])=>`<option value="${v}" ${UI.routeStart===v?"selected":""}>${l}</option>`).join("")}</select></label>
+    ${UI.routeStart==="me"&&!UI.myPos?`<button class="btn sm outline" data-act="mypos" style="align-self:flex-start">📍 Obter a minha posição</button>`:""}</section>
+  ${order.length?`<section class="card"><div class="row"><h2>Rota sugerida</h2><span class="muted">≈ ${totalKm} km · ${Math.floor(minutes/60)}h${pad(minutes%60)} com ${order.length} visita(s) de 45 min</span></div>
+    ${MapSVG(list,order,null)}
+    <ol class="route-list">${legs.map((l,i)=>`<li><span class="n">${i+1}</span><span style="flex:1;min-width:0"><b>${esc(l.s.name)}</b> <small class="muted">${esc(l.s.city)}</small><br><small class="muted">${l.d?`${Math.round(l.d)} km · ${Math.round(l.d/DRIVE_KMH*60)} min · `:""}chegada ≈ ${hm(sched[i].arrive)} · ${esc(l.s.statusText)}${l.s.open?` · ${l.s.open} ação(ões)`:""}</small></span><a class="btn sm outline" href="${navUrl(l.s)}" target="_blank" rel="noreferrer" aria-label="Ir para ${esc(l.s.name)}">🧭</a><button class="btn sm ghost" data-store="${l.s.id}">Ficha</button></li>`).join("")}</ol>
+    <div class="inline"><a class="btn" href="${gmaps}" target="_blank" rel="noreferrer">Abrir no Google Maps</a><input id="routeDate" type="date" value="${UI.agDate}" style="width:auto"><button class="btn outline" data-act="saveroute">Guardar na agenda</button></div><p class="muted">Distâncias estimadas (linha reta × 1,25). O Google Maps dá o trajeto real. «Guardar na agenda» cria as visitas planeadas do dia, pela ordem, de 45 em 45 min a partir das 9h30.</p></section>`:`<p class="muted" style="text-align:center">Escolha pelo menos uma loja com coordenadas.</p>`}`;
+}
+
+function Loja(){
+  const s0 = S.stores.find(x=>x.id===UI.storeId); if(!s0) return `<p>Loja não encontrada.</p>`;
+  const s = summary(s0);
+  const vs = S.visits.filter(v=>v.store===s.id).sort((a,b)=>b.at.localeCompare(a.at));
+  const acts = S.actions.filter(a=>a.store===s.id && a.status!=="done").sort((a,b)=>a.due.localeCompare(b.due));
+  const st = S.stock.filter(x=>x.site===s.code);
+  const rupt = st.filter(x=>x.qty<=0), dorm = st.filter(x=>x.qty>0 && (!x.last||daysBetween(x.last,today())>S.settings.dormant));
+  const sh = S.shipments.filter(x=>x.site===s.code).sort((a,b)=>b.date.localeCompare(a.date));
+  const k = S.kpis.filter(x=>x.site===s.code).sort((a,b)=>b.month.localeCompare(a.month))[0];
+  const noShip = s.lastShip && daysBetween(s.lastShip,today())>S.settings.noShip;
+  const visitBlock = v => { const bad=new Set(v.bad); return `<div style="display:flex;flex-direction:column;gap:6px">
+    <div class="row muted"><span>${fmtDT(v.at)} · ${esc(S.users.find(u=>u.id===v.sup)?.name||"")}</span>${v.rating?`<span style="color:var(--soon)">${"★".repeat(v.rating)}${"☆".repeat(5-v.rating)}</span>`:""}</div>
+    ${v.reason?`<span class="badge" style="align-self:flex-start">Motivo: ${esc(v.reason)}</span>`:""}
+    <ul class="checklist-res">${S.items.filter(i=>i.active||bad.has(i.id)).map(i=>`<li class="${bad.has(i.id)?"late-t":""}">${bad.has(i.id)?"❌":"✅"} ${esc(i.label)}</li>`).join("")}</ul>
+    ${!v.bad.length?`<p class="ok-t" style="margin:0">Todos os pontos conformes.</p>`:""}
+    ${v.comment?`<p class="comment">${esc(v.comment)}</p>`:""}
+    ${v.extra?`<div class="kv">${v.extra.managerPresent?`<span>Responsável presente</span><span>${esc(v.extra.managerPresent)}</span>`:""}${v.extra.staff?`<span>Colaboradores presentes</span><span>${v.extra.staff}</span>`:""}${v.extra.salesFeel?`<span>Vendas vs objetivo</span><span>${esc(v.extra.salesFeel)}</span>`:""}${v.extra.promoOk?`<span>Promoção em vigor</span><span>${esc(v.extra.promoOk)}</span>`:""}${v.extra.training&&v.extra.training.length?`<span>Formação a dar</span><span>${esc(v.extra.training.join(", "))}</span>`:""}${v.extra.competition?`<span>Concorrência</span><span>${esc(v.extra.competition)}</span>`:""}${v.extra.nextSteps?`<span>Próximos passos</span><span>${esc(v.extra.nextSteps)}</span>`:""}${v.extra.followUp?`<span>Follow-up</span><span>${fmtDate(v.extra.followUp)}</span>`:""}</div>`:""}
+    ${v.photos.length?`<div class="photos">${v.photos.map(p=>`<span class="photo"><img src="${p}" alt=""></span>`).join("")}</div>`:""}
+    ${v.lat!=null?`<a href="https://maps.google.com/?q=${v.lat},${v.lng}" target="_blank" rel="noreferrer" style="font-size:.85rem">📍 posição registada</a>`:""}
+    <p class="muted">${v.sent?"Relatório enviado ao responsável":"Relatório não enviado"}</p></div>`; };
+  return `<button class="link" data-go="lojas" style="align-self:flex-start;padding-left:0">← Lojas</button>
+  <header style="display:flex;flex-direction:column;gap:8px"><h1 style="font-size:1.8rem">${esc(s.name)}</h1>
+    <div class="meta" style="align-items:center">${statusChip(s)}<span>${esc(s.city)} · ${esc(s.code)}</span><span>Cadência ${s.cadE} · ${cadDays(s.cadE)} dias${s.tempCad&&s.cadE===s.tempCad?` (temporária até ${fmtDate(s.tempUntil)})`:""}</span></div>
+    <div class="meta"><span>Responsável: <b>${esc(s.manager)}</b> · ${esc(s.email)}</span><span>Supervisor: ${esc(s.supName)}</span>${s.priority&&s.priority!=="Normal"?`<span class="badge ${s.priority==="Alta"?"late":""}">Prioridade ${esc(s.priority)}</span>`:""}</div>
+    <div class="inline"><button class="btn lg" data-nova="${s.id}" style="flex:1">${I.plus} Nova visita</button><button class="btn outline" data-planstore="${s.id}">${I.cal} Planear</button></div>
+    <div class="inline">${navBtn(s,"btn outline")}${wazeUrl(s)?`<a class="btn ghost" href="${wazeUrl(s)}" target="_blank" rel="noreferrer">Waze</a>`:""}${s.phone?`<a class="btn ghost" href="tel:${esc(s.phone.replace(/\s/g,""))}">📞 ${esc(s.phone)}</a>`:""}</div></header>
+  ${(()=>{const nxt=S.planned.filter(p=>p.store===s.id&&!p.visitId&&p.date>=iso(today())).sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time))[0]; return nxt?`<section class="card plan"><div class="row"><span><span class="time">${fmtDay(nxt.date)} ${nxt.time}</span> · próxima visita planeada</span><button class="btn sm ghost" data-editplan="${nxt.id}">Editar</button></div><div class="muted">${esc(nxt.reason)}${nxt.notes?` · ${esc(nxt.notes)}`:""}</div></section>`:"";})()}
+  <section class="card"><h2>Loja</h2><div class="kv"><span>Morada</span><span>${esc(s.address||"—")}</span><span>Telefone</span><span>${esc(s.phone||"—")}</span><span>Horário</span><span>${esc(s.hours||"—")}</span><span>Equipa</span><span>${s.team??"—"} colaborador(es)</span><span>Cadência</span><span>${s.cad}${s.tempCad?` · temporária ${s.tempCad} até ${fmtDate(s.tempUntil)}`:""}</span></div>
+    <label class="field"><span>Notas da loja (visíveis por todos)</span><textarea data-storenotes="${s.id}" rows="2" placeholder="Ex.: equipa nova, obras no centro, horário especial…">${esc(s.notes||"")}</textarea></label></section>
+  <section class="card ${s.alerts.length?"alert":""}"><h2>Alertas</h2>${s.alerts.length?`<ul style="margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px">${s.alerts.map(a=>`<li>⚠️ ${esc(a)}</li>`).join("")}</ul>`:`<p class="muted">Nada a assinalar.</p>`}</section>
+  <section class="card"><div class="row"><h2>Ações abertas</h2><span class="badge">${acts.length}</span></div>
+    ${acts.length?acts.map(a=>{const late=dayOf(a.due)<today();return `<div class="row" style="padding:8px 0;border-top:1px solid var(--line)"><div style="min-width:0"><div style="font-weight:500">${esc(a.title)}</div><div class="muted">${esc(a.owner)} · <span class="${late?"late-t":""}">${late?"Atrasada · ":"prazo "}${fmtDate(a.due)}</span> · ${actLabel(a.status)}</div></div><button class="btn sm ${late?"":"outline"}" data-done="${a.id}">Feita ✓</button></div>`;}).join(""):`<p class="muted">Nenhuma ação aberta.</p>`}</section>
+  <section class="card"><h2>Última visita</h2>${vs[0]?visitBlock(vs[0]):`<p class="muted">Ainda sem visitas.</p>`}
+    ${vs.length>1?`<details><summary>Visitas anteriores (${vs.length-1})</summary><div style="display:flex;flex-direction:column;gap:16px;margin-top:8px">${vs.slice(1).map(visitBlock).join("<hr style='border:0;border-top:1px solid var(--line)'>")}</div></details>`:""}</section>
+  <section class="card"><div class="row"><h2>Stock · referências chave</h2><span class="muted">${st.length} ref.</span></div>
+    ${!st.length?`<p class="muted">Sem dados de stock (import Sage X3).</p>`:`<h3>Ruturas (${rupt.length})</h3>${rupt.length?`<ul style="margin:0;padding-left:18px;font-size:.9rem">${rupt.map(x=>`<li><b>${esc(x.ref)}</b> ${esc(x.des)}${x.top?" ⭐":""} · última venda ${fmtDate(x.last)}</li>`).join("")}</ul>`:`<p class="muted">Nenhuma.</p>`}
+    <h3>Stock dormente · sem venda há mais de ${S.settings.dormant} dias (${dorm.length})</h3>${dorm.length?`<ul style="margin:0;padding-left:18px;font-size:.9rem">${dorm.map(x=>`<li><b>${esc(x.ref)}</b> ${esc(x.des)} · ${x.qty} un. · última venda ${fmtDate(x.last)}</li>`).join("")}</ul>`:`<p class="muted">Nenhum.</p>`}`}</section>
+  <section class="card"><h2>Envios do armazém · 30 dias</h2>${!sh.length?`<p class="muted">Sem envios nos últimos 30 dias.</p>`:`<p class="${noShip?"late-t":"muted"}" style="margin:0">Último envio: ${fmtDate(s.lastShip)}${s.inTransit?` · ${s.inTransit} em trânsito`:""}${noShip?` · há mais de ${S.settings.noShip} dias`:""}</p>
+    <div class="scroll"><table><thead><tr><th>Nº</th><th>Data</th><th>Estado</th><th class="num">Env.</th><th class="num">Rec.</th></tr></thead><tbody>${sh.map(x=>{const d=x.status==="discrepancy"||(x.status==="received"&&x.sent!==x.recv);return `<tr class="${d?"late-t":""}"><td>${esc(x.no)}</td><td>${fmtDay(x.date)}</td><td>${shipLabel(x.status)}</td><td class="num">${x.sent}</td><td class="num">${x.status==="in_transit"?"—":x.recv}</td></tr>`;}).join("")}</tbody></table></div>`}</section>
+  <section class="card"><h2>Números vs objetivo</h2>${!k?`<p class="muted">Ainda sem KPI mensais (import mensal).</p>`:`<div class="kpis" style="grid-template-columns:repeat(3,1fr)">
+    ${[["Mês",k.month.split("-").reverse().join("/")],["Vendas",money(k.sales)],["Objetivo",money(k.target)],["% objetivo",k.target?Math.round(k.sales/k.target*100)+"%":"—",k.sales<k.target],["Tráfego",k.traffic??"—"],["Conversão",k.traffic&&k.tickets?(k.tickets/k.traffic*100).toFixed(1)+"%":"—"]].map(([l,v,bad])=>`<div style="display:flex;flex-direction:column"><span style="font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)">${l}</span><b style="font-family:var(--font-display);font-size:1.3rem;font-weight:500;${bad?"color:var(--late)":""}">${v}</b></div>`).join("")}</div>`}</section>`;
+}
+
+function Nova(){
+  const d = UI.draft || (UI.draft = { store: UI.storeId && myStores().some(s=>s.id===UI.storeId) ? UI.storeId : "", at:(()=>{const n=new Date();return `${iso(n)}T${pad(n.getHours())}:${pad(n.getMinutes())}`;})(), reason:S.reasons[0], bad:[], rating:null, comment:"", photos:[], geo:null, geoState:"idle", planId:null, extra:{managerPresent:"",staff:"",salesFeel:"",promoOk:"",competition:"",training:[],nextSteps:"",followUp:"",priority:""} });
+  const planned = d.planId? S.planned.find(p=>p.id===d.planId) : null;
+  const opt=(k,vals)=>`<div class="opts">${vals.map(v=>`<button type="button" data-q="${k}" data-v="${esc(v)}" class="${d.extra[k]===v?"on":""}">${esc(v)}</button>`).join("")}</div>`;
+  const list = myStores();
+  const s = d.store? summary(S.stores.find(x=>x.id===+d.store)) : null;
+  const items = S.items.filter(i=>i.active);
+  return `<h1>Nova visita</h1><p class="muted">Marque só o que <b>NÃO</b> está conforme. Nada marcado = tudo OK. O relatório segue por email ao responsável da loja e as ações são criadas sozinhas.</p>
+  ${planned?`<div class="badge" style="align-self:flex-start;white-space:normal;padding:6px 10px">📅 Visita planeada ${fmtDay(planned.date)} ${planned.time} · ${esc(planned.reason)}${planned.notes?` · ${esc(planned.notes)}`:""}</div>`:""}
+  <label class="field"><span>Loja</span><select id="f-store"><option value="">Escolher a loja…</option>${list.map(x=>`<option value="${x.id}" ${+d.store===x.id?"selected":""}>${esc(x.name)} · ${esc(x.city)}</option>`).join("")}</select>
+    ${s&&s.alerts.length?`<div class="badge alert" style="white-space:normal;padding:8px 12px"><b>A verificar nesta loja:</b>&nbsp;${esc(s.alerts.join(" · "))}</div>`:""}</label>
+  <label class="field"><span>Motivo da visita</span><select id="f-reason">${S.reasons.map(r=>`<option ${d.reason===r?"selected":""}>${esc(r)}</option>`).join("")}</select></label>
+  <div class="grid2"><label class="field"><span>Data e hora</span><input id="f-at" type="datetime-local" value="${d.at}"></label>
+    <div class="field"><span>Posição</span><div style="min-height:44px;display:flex;align-items:center;gap:8px;font-size:.9rem" class="${d.geo?"ok-t":"muted"}">📍 ${d.geo?"Posição registada":d.geoState==="asking"?"A obter posição…":d.geoState==="denied"?"Sem posição (recusada ou indisponível)":"Sem posição (opcional)"} ${!d.geo?`<button class="btn sm outline" data-act="geo">Obter</button>`:""}</div></div></div>
+  <fieldset style="border:0;padding:0;margin:0;display:flex;flex-direction:column;gap:8px"><h3 style="margin-bottom:4px">Checklist · toque no que está mal</h3>
+    ${items.map(i=>{const bad=d.bad.includes(i.id);return `<button class="check ${bad?"bad":""}" data-toggle="${i.id}" aria-pressed="${bad}"><span style="font-size:1.1rem">${bad?"❌":"✅"}</span><span style="font-weight:500">${esc(i.label)}</span><small>${bad?"Não conforme":"OK"}</small></button>`;}).join("")}
+    <p class="${d.bad.length?"late-t":"ok-t"}" style="margin:0;font-size:.9rem">${d.bad.length?`${d.bad.length} ponto(s) não conforme(s) → ${d.bad.length} ação(ões) com prazo`:"Tudo conforme 🎉"}</p></fieldset>
+  <div class="field"><span>Fotos</span><div class="photos">${d.photos.map((p,i)=>`<span class="photo"><img src="${p}" alt=""><button data-rmphoto="${i}" aria-label="Remover">×</button></span>`).join("")}<button class="addphoto" data-act="addphoto">${I.cam}<span>Tirar / escolher</span></button><input id="f-photo" type="file" accept="image/*" capture="environment" multiple hidden></div></div>
+  <div class="field"><span>Avaliação global da loja</span><div class="stars" role="radiogroup">${[1,2,3,4,5].map(n=>`<button data-star="${n}" class="${d.rating&&n<=d.rating?"on":""}" role="radio" aria-checked="${d.rating===n}">★</button>`).join("")}</div></div>
+  <label class="field"><span>Comentário para o responsável (opcional)</span><textarea id="f-comment" rows="3" placeholder="Ex.: provador com pó; 3 etiquetas de promoção em falta.">${esc(d.comment)}</textarea></label>
+  <button class="btn outline" data-act="more" style="align-self:flex-start">${UI.more?"− Menos perguntas":"+ Mais perguntas (opcional · 2 min)"}</button>
+  ${UI.more?`<div class="more">
+    <div class="q"><span class="field"><span>Responsável da loja presente?</span></span>${opt("managerPresent",["Sim","Não","Substituto"])}</div>
+    <label class="field"><span>Colaboradores presentes</span><input id="f-staff" type="number" min="0" inputmode="numeric" value="${esc(d.extra.staff)}" style="max-width:140px"></label>
+    <div class="q"><span class="field"><span>Vendas vs objetivo (feedback da equipa)</span></span>${opt("salesFeel",["Acima","Em linha","Abaixo","Não sabe"])}</div>
+    <div class="q"><span class="field"><span>Promoção em vigor bem implementada?</span></span>${opt("promoOk",["Sim","Parcialmente","Não","Sem promoção"])}</div>
+    <div class="q"><span class="field"><span>Formação a dar à equipa</span></span><div class="opts">${S.trainings.map(t=>`<button type="button" data-train="${esc(t)}" class="${d.extra.training.includes(t)?"on":""}">${esc(t)}</button>`).join("")}</div></div>
+    <label class="field"><span>Concorrência / mercado (o que viu no centro)</span><textarea id="f-comp" rows="2" placeholder="Ex.: concorrente com -30% em fragrâncias masculinas.">${esc(d.extra.competition)}</textarea></label>
+    <label class="field"><span>Próximos passos combinados com o responsável</span><textarea id="f-next" rows="2">${esc(d.extra.nextSteps)}</textarea></label>
+    <div class="grid2"><label class="field"><span>Follow-up: planear nova visita em</span><input id="f-follow" type="date" value="${d.extra.followUp}"></label>
+    <div class="q"><span class="field"><span>Prioridade da loja</span></span>${opt("priority",["Baixa","Normal","Alta"])}</div></div>
+  </div>`:""}
+  <button class="btn lg" data-act="submit" ${!d.store?"disabled":""}>Registar visita e enviar relatório</button>`;
+}
+
+function submitVisit(){
+  const d=UI.draft; const store=S.stores.find(x=>x.id===+d.store); if(!store) return;
+  const ex={...d.extra, staff:d.extra.staff===""?"":+d.extra.staff};
+  const v={id:nextId(S.visits),store:store.id,sup:UI.user,at:d.at,reason:d.reason,rating:d.rating,comment:d.comment.trim(),bad:[...d.bad],photos:d.photos,lat:d.geo?.lat??null,lng:d.geo?.lng??null,sent:true,extra:ex};
+  S.visits.push(v);
+  if(ex.priority) store.priority=ex.priority;
+  const pl = d.planId? S.planned.find(p=>p.id===d.planId) : S.planned.find(p=>p.store===store.id&&!p.visitId&&p.date===d.at.slice(0,10));
+  if(pl) pl.visitId=v.id;
+  if(ex.followUp){ S.planned.push({id:nextId(S.planned),store:store.id,sup:UI.user,date:ex.followUp,time:"10:00",reason:"Acompanhamento de ações",notes:ex.nextSteps||"Follow-up da visita de "+fmtDate(d.at),visitId:null}); }
+  const created=[];
+  for(const id of d.bad){ const it=S.items.find(i=>i.id===id); if(!it) continue;
+    const a={id:nextId(S.actions),store:store.id,visit:v.id,item:it.id,title:`${it.label} – ${store.name}`,owner:it.owner,status:"open",due:iso(addDays(new Date(d.at),it.days)),notes:it.action};
+    S.actions.push(a); created.push(a); }
+  const lines=S.items.filter(i=>i.active).map(i=>`${d.bad.includes(i.id)?"❌":"✅"} ${i.label}`).join("\n");
+  const extraTxt=[ex.managerPresent&&`Responsável presente: ${ex.managerPresent}`, ex.staff!==""&&`Colaboradores presentes: ${ex.staff}`, ex.salesFeel&&`Vendas vs objetivo: ${ex.salesFeel}`, ex.promoOk&&`Promoção em vigor: ${ex.promoOk}`, ex.training.length&&`Formação a dar: ${ex.training.join(", ")}`, ex.competition&&`Concorrência: ${ex.competition}`, ex.nextSteps&&`Próximos passos: ${ex.nextSteps}`, ex.followUp&&`Follow-up planeado: ${fmtDate(ex.followUp)}`].filter(Boolean).join("\n");
+  const body=`Relatório de visita — ${store.name}\n${fmtDT(d.at)} · Supervisor: ${user().name}\nMotivo: ${v.reason}\n${v.rating?`Avaliação global: ${"★".repeat(v.rating)}${"☆".repeat(5-v.rating)}\n`:""}\nChecklist\n${lines}\n\n${created.length?`Ações a realizar\n${created.map(a=>`• ${a.title} — prazo ${fmtDate(a.due)} · ${a.owner}\n  ${a.notes}`).join("\n")}`:"✅ Todos os pontos estão conformes. Obrigado!"}${v.comment?`\n\nComentário: ${v.comment}`:""}${extraTxt?`\n\n${extraTxt}`:""}${v.photos.length?`\n\n${v.photos.length} foto(s) em anexo`:""}`;
+  S.outbox.unshift({at:new Date().toISOString(),to:`${store.email} (cc ${user().email})`,subject:`Relatório de visita — ${store.name}`,body});
+  UI.draft=null;
+  toast(`Visita registada · ${created.length} ação(ões) criada(s) · relatório enviado (simulado)`);
+  go("loja",store.id);
+}
+
+// ---------- agenda ----------
+const WD=["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"], MONTHS=["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
+const myPlanned = () => S.planned.filter(p=>isAdmin()||p.sup===UI.user).filter(p=>isAdmin()&&UI.supFilter!=="all"?String(p.sup)===UI.supFilter:true);
+const myActions = () => S.actions.filter(a=>isAdmin()||S.stores.find(s=>s.id===a.store)?.sup===UI.user);
+const myVisits = () => S.visits.filter(v=>isAdmin()||v.sup===UI.user);
+function dayItems(dateIso){
+  const t=today(); const d=dayOf(dateIso);
+  const planned=myPlanned().filter(p=>p.date===dateIso).sort((a,b)=>a.time.localeCompare(b.time));
+  const visits=myVisits().filter(v=>v.at.slice(0,10)===dateIso);
+  const acts=myActions().filter(a=>a.status!=="done"&&(a.due===dateIso||(dateIso===iso(t)&&dayOf(a.due)<t)));
+  return {planned,visits,acts};
+}
+function Agenda(){
+  const v=UI.agView, head=`<div class="row"><h1>Agenda</h1><div class="inline">${isAdmin()?`<select id="supFilter" style="width:auto;min-width:160px"><option value="all">Todos os supervisores</option>${S.users.filter(u=>u.role==="sup").map(u=>`<option value="${u.id}" ${UI.supFilter==String(u.id)?"selected":""}>${esc(u.name)}</option>`).join("")}</select>`:""}
+    <div class="seg" role="tablist">${[["hoje","Dia"],["semana","Semana"],["mes","Mês"]].map(([k,l])=>`<button class="${v===k?"on":""}" data-agview="${k}" role="tab" aria-selected="${v===k}">${l}</button>`).join("")}</div></div></div>`;
+  return head+({hoje:AgendaDay,semana:AgendaWeek,mes:AgendaMonth})[v]();
+}
+function plannedCard(p){
+  const s=summary(S.stores.find(x=>x.id===p.store)); const done=!!p.visitId;
+  return `<li class="card plan ${done?"done":""}"><div class="row"><span class="time">${p.time}</span><span class="name" style="font-size:1.05rem;flex:1;min-width:0">${esc(s.name)}</span>${statusChip(s)}</div>
+    <div class="muted">${esc(p.reason)}${p.notes?` · ${esc(p.notes)}`:""}${isAdmin()?` · ${esc(s.supName)}`:""}</div>
+    ${s.alerts.length&&!done?`<div class="badges">${s.alerts.slice(0,3).map(a=>`<span class="badge alert">⚠️ ${esc(a)}</span>`).join("")}</div>`:""}
+    <div class="inline">${done?`<span class="ok-t">✓ Visita feita</span><button class="btn sm ghost" data-store="${s.id}">Ver relatório</button>`:`${navBtn(s)}<button class="btn sm" data-startvisit="${p.id}">Iniciar visita</button><button class="btn sm ghost" data-store="${s.id}">Ficha</button><button class="btn sm ghost" data-editplan="${p.id}">Editar</button>`}</div></li>`;
+}
+function AgendaDay(){
+  const date=UI.agDate; const d=dayOf(date); const t=today(); const isToday=date===iso(t);
+  const {planned,visits,acts}=dayItems(date);
+  const pending=planned.filter(p=>!p.visitId);
+  const stops=pending.map(p=>({p,s:summary(S.stores.find(x=>x.id===p.store))})).filter(x=>x.s.lat!=null);
+  const order=stops.map(x=>x.s);
+  const start=UI.myPos||order[0]||null;
+  const curKm=order.length>1?routeKm(order[0],order.slice(1)):0;
+  const best=order.length>1?planRoute(order[0],order.slice(1)):[]; const bestOrder=order.length>1?[order[0],...best]:order; const bestKm=order.length>1?routeKm(order[0],best):0;
+  const saving=Math.round(curKm-bestKm);
+  const firstMin=pending.length?(+pending[0].time.slice(0,2))*60+(+pending[0].time.slice(3,5)):570;
+  const sched=schedule(null,order,firstMin);
+  const extraVisits=visits.filter(v=>!planned.some(p=>p.visitId===v.id));
+  const gmaps=order.length>1?`https://www.google.com/maps/dir/${order.map(s=>`${s.lat},${s.lng}`).join("/")}`:"";
+  const dayEnd=sched.length?sched[sched.length-1].leave:null;
+  return `<div class="row"><div class="inline"><button class="btn sm ghost" data-agshift="-1">‹</button><h2>${isToday?"Hoje · ":""}${WD[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}</h2><button class="btn sm ghost" data-agshift="1">›</button>${!isToday?`<button class="btn sm ghost" data-agtoday="1">Hoje</button>`:""}</div><button class="btn sm" data-newplan="${date}">+ Planear visita</button></div>
+  ${order.length?`<section class="card" style="padding:8px">${MapSVG(order,order,null)}
+    <div class="daystats"><div><b>${order.length}</b><span>visitas por fazer</span></div><div><b>≈ ${Math.round(curKm)} km</b><span>pela ordem atual</span></div><div><b>${hm(firstMin)} → ${dayEnd!=null?hm(dayEnd):"—"}</b><span>dia estimado</span></div><div><b>${sched.reduce((a,r)=>a+r.drive,0)} min</b><span>ao volante</span></div></div>
+    ${saving>=2?`<div class="hint">⚡ Há uma ordem mais curta: <b>≈ ${Math.round(bestKm)} km</b> (poupa ${saving} km) — ${bestOrder.map(s=>s.name.replace("P&C ","")).join(" → ")} <button class="btn sm" data-act="applybest">Aplicar e reordenar horas</button></div>`:order.length>1?`<p class="muted" style="padding:0 8px">✓ A ordem atual já é a mais curta.</p>`:""}
+    <div class="inline" style="padding:0 8px 4px">${gmaps?`<a class="btn sm outline" href="${gmaps}" target="_blank" rel="noreferrer">Abrir o dia no Google Maps</a>`:""}<button class="btn sm ghost" data-act="mypos">📍 ${UI.myPos?"Posição obtida":"Partir da minha posição"}</button></div></section>`:""}
+  <section><h3 style="margin-bottom:8px">Plano do dia (${planned.length} visita${planned.length===1?"":"s"})</h3>${planned.length?`<ol class="timeline">${planned.map((p,i)=>{const s=summary(S.stores.find(x=>x.id===p.store)); const r=sched.find(x=>x.s.id===s.id); const done=!!p.visitId; const open=S.actions.filter(a=>a.store===s.id&&a.status!=="done"); const late=r&&r.arrive>(+p.time.slice(0,2))*60+(+p.time.slice(3,5))+10;
+      return `${r&&r.drive?`<li class="leg"><span class="legline"></span><span class="muted">🚗 ${Math.round(r.d)} km · ${r.drive} min de deslocação</span></li>`:""}
+      <li class="tl ${done?"done":""}"><div class="tlh"><span class="time">${p.time}</span>${r?`<span class="${late?"late-t":"muted"}" style="font-size:.78rem">chegada prevista ${hm(r.arrive)} · saída ${hm(r.leave)}</span>`:""}</div>
+        <div class="card plan ${done?"done":""}"><div class="row"><span class="name" style="font-size:1.05rem;flex:1;min-width:0">${esc(s.name)}</span>${statusChip(s)}</div>
+          <div class="muted">${esc(p.reason)}${isAdmin()?` · ${esc(s.supName)}`:""} · ${esc(s.city)} · ${esc(s.hours||"")}${s.manager?` · ${esc(s.manager)}`:""}</div>
+          ${p.notes?`<div class="prep">📝 ${esc(p.notes)}</div>`:""}
+          ${!done&&(s.alerts.length||open.length)?`<div class="prep"><b>A preparar:</b> ${[...s.alerts.map(a=>"⚠️ "+a),...(open.length?[`✅ ${open.length} ação(ões) aberta(s) a verificar`]:[])].map(esc).join(" · ")}</div>`:""}
+          <div class="inline">${done?`<span class="ok-t">✓ Visita feita</span><button class="btn sm ghost" data-store="${s.id}">Ver relatório</button>`:`${navBtn(s)}<button class="btn sm" data-startvisit="${p.id}">Iniciar visita</button><button class="btn sm ghost" data-store="${s.id}">Ficha</button><button class="btn sm ghost" data-editplan="${p.id}">Editar</button>`}</div></div></li>`;}).join("")}</ol>`:`<p class="muted">Nenhuma visita planeada${isToday?" para hoje":""}. Use «+ Planear visita» ou guarde uma rota.</p>`}</section>
+  ${extraVisits.length?`<section><h3 style="margin-bottom:8px">Outras visitas feitas (${extraVisits.length})</h3><ul class="list">${extraVisits.map(v=>{const s=S.stores.find(x=>x.id===v.store);return `<li class="card plan done"><div class="row"><span class="time">${v.at.slice(11,16)}</span><span class="name" style="font-size:1.05rem;flex:1">${esc(s.name)}</span><span class="ok-t">✓ feita</span></div><div class="muted">${esc(v.reason||"")}${v.bad.length?` · ${v.bad.length} não conforme(s)`:" · tudo conforme"}</div><div class="inline"><button class="btn sm ghost" data-store="${s.id}">Ver relatório</button></div></li>`;}).join("")}</ul></section>`:""}
+  <section><h3 style="margin-bottom:8px">Ações do dia${isToday?" e em atraso":""} (${acts.length})</h3>${acts.length?`<ul class="list">${acts.sort((a,b)=>a.due.localeCompare(b.due)).map(a=>{const s=S.stores.find(x=>x.id===a.store);const late=dayOf(a.due)<t;return `<li class="card" style="border-left:4px solid ${late?"var(--late)":"var(--soon)"}"><div class="row"><button class="link" data-store="${a.store}" style="padding:0;font-size:.8rem;font-weight:500">${esc(s.name)}</button><span class="${late?"late-t":"muted"}" style="font-size:.8rem">${late?"Atrasada · ":"Prazo "}${fmtDate(a.due)}</span></div><div style="font-weight:500">${esc(S.items.find(i=>i.id===a.item)?.label||a.title)}</div><div class="row"><span class="muted">${esc(a.owner)}</span><button class="btn sm" data-done="${a.id}">Feita ✓</button></div></li>`;}).join("")}</ul>`:`<p class="muted">Nenhuma ação para este dia.</p>`}</section>`;
+}
+function AgendaWeek(){
+  const base=dayOf(UI.agDate); const mon=addDays(base,-((base.getDay()+6)%7)); const t=today();
+  const days=[...Array(7)].map((_,i)=>addDays(mon,i));
+  return `<div class="row"><div class="inline"><button class="btn sm ghost" data-agshift="-7">‹</button><h2>Semana de ${fmtDay(mon)} a ${fmtDay(addDays(mon,6))}</h2><button class="btn sm ghost" data-agshift="7">›</button></div><button class="btn sm" data-newplan="${UI.agDate}">+ Planear visita</button></div>
+  <div class="week">${days.map(d=>{const di=iso(d);const {planned,acts}=dayItems(di);const isT=di===iso(t);return `<div class="wday ${isT?"today":""}"><button class="wday-h" data-agday="${di}"><b>${WD[d.getDay()]}</b> ${d.getDate()}</button>
+    ${planned.map(p=>{const s=S.stores.find(x=>x.id===p.store);return `<button class="witem ${p.visitId?"done":""}" data-agday="${di}">${p.time} ${esc(s.name.replace("P&C ",""))}</button>`;}).join("")}
+    ${acts.length?`<span class="wact">${acts.length} ação(ões)</span>`:""}
+    ${!planned.length&&!acts.length?`<span class="muted" style="font-size:.75rem">—</span>`:""}</div>`;}).join("")}</div>
+  <p class="muted">Toque num dia para o abrir. As visitas em cinza já estão feitas.</p>`;
+}
+function AgendaMonth(){
+  const base=dayOf(UI.agDate); const first=new Date(base.getFullYear(),base.getMonth(),1); const t=today();
+  const start=addDays(first,-((first.getDay()+6)%7)); const cells=[...Array(42)].map((_,i)=>addDays(start,i));
+  return `<div class="row"><div class="inline"><button class="btn sm ghost" data-agshift="-30">‹</button><h2>${MONTHS[base.getMonth()]} ${base.getFullYear()}</h2><button class="btn sm ghost" data-agshift="30">›</button></div><button class="btn sm" data-newplan="${UI.agDate}">+ Planear visita</button></div>
+  <div class="month"><div class="mhead">${["S","T","Q","Q","S","S","D"].map(x=>`<span>${x}</span>`).join("")}</div><div class="mgrid">${cells.map(d=>{const di=iso(d);const {planned,acts}=dayItems(di);const other=d.getMonth()!==base.getMonth();return `<button class="mday ${other?"other":""} ${di===iso(t)?"today":""}" data-agday="${di}"><span>${d.getDate()}</span><span class="dots">${planned.map(p=>`<i class="${p.visitId?"done":""}"></i>`).join("")}${acts.length?`<i class="act"></i>`:""}</span></button>`;}).join("")}</div></div>
+  <p class="muted">● visita planeada · ● feita (cinza) · ● ação com prazo. Toque num dia.</p>`;
+}
+function Plan(){
+  const p=UI.plan; const list=myStores(); const s=p.store?summary(S.stores.find(x=>x.id===+p.store)):null;
+  return `<button class="link" data-go="agenda" style="align-self:flex-start;padding-left:0">← Agenda</button><h1>${UI.planId?"Editar visita planeada":"Planear visita"}</h1>
+  <label class="field"><span>Loja</span><select id="p-store"><option value="">Escolher a loja…</option>${list.map(x=>`<option value="${x.id}" ${+p.store===x.id?"selected":""}>${esc(x.name)} · ${esc(x.statusText)}</option>`).join("")}</select>${s&&s.alerts.length?`<div class="badge alert" style="white-space:normal;padding:8px 12px">${esc(s.alerts.join(" · "))}</div>`:""}</label>
+  <div class="grid2"><label class="field"><span>Data</span><input id="p-date" type="date" value="${p.date}"></label><label class="field"><span>Hora</span><input id="p-time" type="time" value="${p.time}"></label></div>
+  <label class="field"><span>Motivo</span><select id="p-reason">${S.reasons.map(r=>`<option ${p.reason===r?"selected":""}>${esc(r)}</option>`).join("")}</select></label>
+  <label class="field"><span>Notas / o que preparar</span><textarea id="p-notes" rows="3" placeholder="Ex.: levar plano de merchandising, ver rutura REF001.">${esc(p.notes)}</textarea></label>
+  <div class="inline"><button class="btn lg" data-act="saveplan" ${!p.store?"disabled":""} style="flex:1">Guardar na agenda</button>${UI.planId?`<button class="btn outline" data-act="delplan">Apagar</button>`:""}</div>`;
+}
+function openPlan(dateIso, planId, storeId){
+  const p=planId?S.planned.find(x=>x.id===planId):null;
+  UI.planId=planId||null; UI.plan=p?{store:p.store,date:p.date,time:p.time,reason:p.reason,notes:p.notes}:{store:storeId||"",date:dateIso||TODAY,time:"10:00",reason:S.reasons[0],notes:""};
+  go("plan");
+}
+function Acoes(){
+  let all = S.actions.filter(a=>isAdmin()||S.stores.find(s=>s.id===a.store)?.sup===UI.user);
+  const t=today(); all.forEach(a=>a._late=a.status!=="done"&&dayOf(a.due)<t);
+  let list = UI.actTab==="done"? all.filter(a=>a.status==="done") : UI.actTab==="late"? all.filter(a=>a._late) : all.filter(a=>a.status!=="done");
+  list.sort((a,b)=>a.due.localeCompare(b.due));
+  return `<h1>Ações</h1><div class="chips" role="tablist">${[["open","Abertas"],["late","⏰ Em atraso"],["done","Feitas"]].map(([k,l])=>`<button class="chip ${UI.actTab===k?"on":""}" data-acttab="${k}">${l}</button>`).join("")}</div>
+  ${list.length?`<ul class="list">${list.map(a=>{const st=S.stores.find(s=>s.id===a.store);return `<li class="card" style="border-left:4px solid ${a._late?"var(--late)":a.status==="done"?"var(--ok)":"var(--soon)"}">
+    <div class="row"><button class="link" data-store="${a.store}" style="padding:0;font-size:.8rem;font-weight:500">${esc(st?.name||"")}</button><span class="${a._late?"late-t":"muted"}" style="font-size:.8rem">${a._late?"Atrasada · ":"Prazo "}${fmtDate(a.due)}</span></div>
+    <div class="name" style="font-size:1.05rem">${esc(S.items.find(i=>i.id===a.item)?.label||a.title)}</div><div class="muted">${esc(a.notes)}</div>
+    <div class="row"><span class="muted">${esc(a.owner)}${isAdmin()?` · ${esc(S.users.find(u=>u.id===st?.sup)?.name||"")}`:""}</span><span class="inline">${a.status==="open"?`<button class="btn sm outline" data-prog="${a.id}">Em curso</button>`:""}${a.status!=="done"?`<button class="btn sm" data-done="${a.id}">Feita ✓</button>`:`<button class="btn sm ghost" data-reopen="${a.id}">Reabrir</button>`}</span></div></li>`;}).join("")}</ul>`:`<p class="muted" style="text-align:center;padding:32px 0">Nada a assinalar. 👍</p>`}`;
+}
+
+function Sede(){
+  const tabs=[["painel","Painel"],["config","Configuração"],["import","Import Sage X3"],["mail","Emails (simulados)"]];
+  return `<div class="row"><h1>Sede</h1><div class="chips">${tabs.map(([k,l])=>`<button class="chip ${UI.sedeTab===k?"on":""}" data-sedetab="${k}">${l}</button>`).join("")}</div></div>
+  ${({painel:Painel,config:Config,import:Import,mail:Mail})[UI.sedeTab]()}`;
+}
+function Painel(){
+  const all=S.stores.filter(s=>s.active).map(summary);
+  const sups=S.users.filter(u=>u.role==="sup").map(u=>{const m=all.filter(s=>s.sup===u.id);const lv=m.filter(s=>s.status==="late"||s.status==="never").length;return {u,n:m.length,lv,v30:m.reduce((a,s)=>a+s.visits30,0),open:m.reduce((a,s)=>a+s.open,0),late:m.reduce((a,s)=>a+s.late,0),rup:m.reduce((a,s)=>a+s.ruptures,0),disc:m.reduce((a,s)=>a+s.disc,0),pct:m.length?Math.round((m.length-lv)/m.length*100):100};}).filter(x=>x.n);
+  const tot={lv:all.filter(s=>s.status==="late"||s.status==="never").length,nv:all.filter(s=>s.noVisit).length,late:all.reduce((a,s)=>a+s.late,0),rup:all.reduce((a,s)=>a+s.ruptures,0),disc:all.reduce((a,s)=>a+s.disc,0),v30:all.reduce((a,s)=>a+s.visits30,0)};
+  const exc=all.filter(s=>s.status==="late"||s.status==="never"||s.noVisit||s.late||s.ruptures||s.disc).sort((a,b)=>a.daysUntil-b.daysUntil);
+  const since=addDays(today(),-90); const freq={}; S.visits.filter(v=>new Date(v.at)>=since).forEach(v=>v.bad.forEach(id=>{const l=S.items.find(i=>i.id===id)?.label;if(l)freq[l]=(freq[l]||0)+1;}));
+  const fr=Object.entries(freq).sort((a,b)=>b[1]-a[1]); const max=fr[0]?.[1]||1;
+  const kpi=(l,v,t)=>`<div class="kpi ${t||""}"><b>${v}</b><span>${l}</span></div>`;
+  return `<div class="kpis">${kpi("Lojas ativas",all.length)}${kpi("Visitas em atraso",tot.lv,tot.lv?"late":"ok")}${kpi(`Sem visita há + de ${S.settings.maxNoVisit} d`,tot.nv,tot.nv?"late":"ok")}${kpi("Ações em atraso",tot.late,tot.late?"late":"ok")}${kpi("Ruturas refs chave",tot.rup,tot.rup?"soon":"ok")}${kpi("Envios com diferença",tot.disc,tot.disc?"soon":"ok")}${kpi("Visitas · 30 dias",tot.v30)}${kpi("Planeadas · 7 dias",S.planned.filter(p=>!p.visitId&&p.date>=TODAY&&p.date<=ISO(7)).length)}</div>
+  <section class="card"><h2>Por supervisor</h2><div class="scroll"><table><thead><tr><th>Supervisor</th><th class="num">Lojas</th><th class="num">Cadências ✓</th><th class="num">Visitas atrasadas</th><th class="num">Visitas 30 d</th><th class="num">Ações abertas</th><th class="num">Em atraso</th><th class="num">Ruturas</th><th class="num">Envios ≠</th><th></th></tr></thead><tbody>
+    ${sups.map(x=>`<tr><td>${esc(x.u.name)}</td><td class="num">${x.n}</td><td class="num ${x.pct<80?"late-t":x.pct<100?"":"ok-t"}" ${x.pct<100&&x.pct>=80?'style="color:var(--soon);font-weight:600"':""}>${x.pct}%</td><td class="num ${x.lv?"late-t":""}">${x.lv}</td><td class="num">${x.v30}</td><td class="num">${x.open}</td><td class="num ${x.late?"late-t":""}">${x.late}</td><td class="num">${x.rup}</td><td class="num">${x.disc}</td><td><button class="btn sm ghost" data-agenda="${x.u.id}">Agenda 2ª feira</button></td></tr>`).join("")}</tbody></table></div></section>
+  <section class="card"><div class="row"><h2>Lojas em exceção</h2><span class="muted">${exc.length} de ${all.length}</span></div>${exc.length?`<ul class="list">${exc.map(s=>`<li><button class="ex" data-store="${s.id}"><div class="row"><span class="name" style="font-size:1.05rem">${esc(s.name)}</span>${statusChip(s)}</div><div class="muted">${esc(s.supName)} · ${esc(s.city)} · cadência ${s.cadE}</div>${s.alerts.length?`<div class="meta" style="color:var(--soon)">${s.alerts.map(a=>`<span>⚠️ ${esc(a)}</span>`).join("")}</div>`:""}</button></li>`).join("")}</ul>`:`<p class="ok-t">Nada a assinalar. 👍</p>`}</section>
+  <section class="card"><h2>Pontos não conformes · 90 dias</h2>${fr.length?`<ul class="bars">${fr.map(([l,n])=>`<li><span>${esc(l)}</span><i><b style="width:${n/max*100}%"></b></i><span class="num"><b>${n}</b></span></li>`).join("")}</ul>`:`<p class="muted">Sem não conformidades registadas.</p>`}</section>
+  <section class="card"><h2>Últimos imports Sage X3</h2>${S.imports.length?`<ul style="margin:0;padding-left:18px;font-size:.9rem">${S.imports.slice(0,6).map(l=>`<li><b>${l.kind}</b> · ${fmtDT(l.at)} · ${l.rows} linhas${l.unknown.length?` · <span class="late-t">sites sem loja: ${esc(l.unknown.join(", "))}</span>`:""}</li>`).join("")}</ul>`:`<p class="muted">Ainda sem imports (dados de exemplo).</p>`}</section>`;
+}
+function Config(){
+  const st=S.settings;
+  const sel=(id,val,opts)=>`<select data-cfg="${id}">${opts.map(([v,l])=>`<option value="${v}" ${String(val)===String(v)?"selected":""}>${l}</option>`).join("")}</select>`;
+  return `<section class="card"><h2>Lojas e cadências</h2><p class="muted">Latitude / longitude servem para o mapa e a rota (na app real, preenchidas a partir da morada).</p><div class="scroll"><table><thead><tr><th>Loja</th><th>Sage</th><th>Supervisor</th><th>Cadência</th><th>Temporária</th><th>até</th><th>Lat</th><th>Lng</th><th>Ativa</th></tr></thead><tbody>
+    ${S.stores.map(s=>`<tr><td>${esc(s.name)}<div class="muted">${esc(s.city)} · ${esc(s.manager)}</div></td><td>${esc(s.code)}</td><td>${sel(`sup:${s.id}`,s.sup,S.users.filter(u=>u.role==="sup").map(u=>[u.id,u.name]))}</td><td>${sel(`cad:${s.id}`,s.cad,[["A","A · 2 sem."],["B","B · mês"],["C","C · trim."]])}</td><td>${sel(`tempCad:${s.id}`,s.tempCad||"",[["","—"],["A","A"],["B","B"],["C","C"]])}</td><td><input type="date" data-cfg="tempUntil:${s.id}" value="${s.tempUntil||""}" style="min-width:150px"></td><td><input type="number" step="0.0001" data-cfg="lat:${s.id}" value="${s.lat??""}" style="width:110px"></td><td><input type="number" step="0.0001" data-cfg="lng:${s.id}" value="${s.lng??""}" style="width:110px"></td><td><input type="checkbox" data-cfg="active:${s.id}" ${s.active?"checked":""} style="width:22px;height:22px;min-height:0"></td></tr>`).join("")}</tbody></table></div>
+    <button class="btn sm outline" data-act="addstore" style="align-self:flex-start">+ Loja</button></section>
+  <section class="card"><h2>Checklist da visita</h2><p class="muted">Cada ponto não conforme cria esta ação, com este prazo e este responsável.</p><div class="scroll"><table><thead><tr><th>Ponto</th><th>Ação criada</th><th>Prazo (d)</th><th>Responsável</th><th>Ativo</th></tr></thead><tbody>
+    ${S.items.map(i=>`<tr><td><input data-cfg="label:${i.id}" value="${esc(i.label)}" style="min-width:160px"></td><td><textarea data-cfg="action:${i.id}" rows="2" style="min-width:240px;min-height:0">${esc(i.action)}</textarea></td><td><input type="number" min="0" data-cfg="days:${i.id}" value="${i.days}" style="width:80px"></td><td>${sel(`owner:${i.id}`,i.owner,[["Responsável loja","Responsável loja"],["Supervisor","Supervisor"],["Sede","Sede"]])}</td><td><input type="checkbox" data-cfg="iactive:${i.id}" ${i.active?"checked":""} style="width:22px;height:22px;min-height:0"></td></tr>`).join("")}</tbody></table></div>
+    <button class="btn sm outline" data-act="additem" style="align-self:flex-start">+ Ponto</button></section>
+  <section class="card"><h2>Parâmetros</h2><div class="kpis">${[["cadA","Cadência A (dias)"],["cadB","Cadência B (dias)"],["cadC","Cadência C (dias)"],["dueSoon","«Esta semana» = próximos (dias)"],["maxNoVisit","Alerta: loja sem visita há mais de (dias)"],["dormant","Stock dormente: sem venda há (dias)"],["noShip","Alerta sem envio há (dias)"]].map(([k,l])=>`<label class="field"><span>${l}</span><input type="number" min="1" data-cfg="set:${k}" value="${st[k]}"></label>`).join("")}</div><p class="muted">As alterações aplicam-se imediatamente a todos os cálculos (estados, alertas, agenda).</p></section>`;
+}
+function Import(){
+  return `<section class="card"><h2>Import manual dos CSV Sage X3</h2><p class="muted">Mesmo formato que o import noturno. Separador ; ou , · datas AAAA-MM-DD ou DD/MM/AAAA.</p>
+    ${[["stock","Stock por site (ficheiro 1)","Site · Referencia · Designacao · QtdStock · DataUltimaVenda · TopVenda"],["shipments","Expedições armazém → lojas (ficheiro 2)","NumExpedicao · SiteDestino · DataEnvio · NbLinhas · QtdEnviada · QtdRecebida · Estado"],["kpis","KPI mensais (opcional)","Site · Mes · Vendas · Objetivo · Trafego · Tickets"]].map(([k,t,c])=>`<label class="ex" style="display:grid;grid-template-columns:1fr auto;gap:2px 12px;align-items:center;cursor:pointer"><span style="font-weight:600">${t}</span><span class="btn sm outline" style="grid-row:1/3">Escolher CSV</span><span class="muted" style="font-size:.75rem">${c}</span><input type="file" accept=".csv,text/csv" data-import="${k}" hidden></label>`).join("")}
+    <p class="muted">Stock: substituição completa. Expedições: atualização por nº e remoção das que já não vêm no ficheiro. Sites sem loja correspondente são assinalados.</p></section>`;
+}
+function Mail(){
+  return `<section class="card"><h2>Caixa de saída (simulação)</h2><p class="muted">Na app real, estes emails partem sozinhos: relatório a cada visita (ao responsável da loja, cc supervisor), agenda de 2ª feira por supervisor e lembrete diário das ações em atraso.</p>
+    ${S.outbox.length?S.outbox.slice(0,20).map(m=>`<div class="mail"><div class="row"><b>${esc(m.subject)}</b><span class="muted">${fmtDT(m.at)}</span></div><div class="muted">Para: ${esc(m.to)}</div><pre>${esc(m.body)}</pre></div>`).join(""):`<p class="muted">Ainda nada enviado. Registe uma visita ou gere a agenda de 2ª feira no Painel.</p>`}</section>`;
+}
+function agenda(uid){
+  const u=S.users.find(x=>x.id===uid); const m=S.stores.filter(s=>s.active&&s.sup===uid).map(summary).filter(s=>s.status!=="ok"||s.noVisit).sort((a,b)=>a.daysUntil-b.daysUntil);
+  const body=`Bom dia ${u.name},\n\nLojas a visitar nos próximos ${S.settings.dueSoon} dias (🔴 = em atraso):\n\n${m.length?m.map(s=>`${s.status==="soon"?"🟠":"🔴"} ${s.name} (${s.city}) — ${s.statusText}${s.open?` · ${s.open} ação(ões) aberta(s)`:""}${s.alerts.length?` · ${s.alerts.join(" · ")}`:""}`).join("\n"):"Nenhuma loja a visitar esta semana. 👍"}\n\nBoa semana!`;
+  S.outbox.unshift({at:new Date().toISOString(),to:u.email,subject:`Lojas a visitar esta semana (${m.length})`,body});
+  UI.sedeTab="mail"; toast("Agenda gerada (simulação de email)"); render();
+}
+
+// ---------- CSV import ----------
+const norm = s => String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]/g,"");
+function parseCSV(text){ const lines=text.replace(/^﻿/,"").split(/\r?\n/).filter(l=>l.trim()); if(!lines.length) return []; const sep=[";",",","\t","|"].sort((a,b)=>lines[0].split(b).length-lines[0].split(a).length)[0]; const head=lines[0].split(sep).map(h=>h.trim()); return lines.slice(1).map(l=>{const c=l.split(sep);const o={};head.forEach((h,i)=>o[h]=(c[i]||"").trim());return o;}); }
+const pick=(r,...names)=>{const ks=Object.keys(r);for(const n of names){const k=ks.find(x=>norm(x)===norm(n));if(k!==undefined)return r[k];}return "";};
+const toDate=raw=>{const s=(raw||"").trim();let m;if(!s)return null;if((m=s.match(/^(\d{4})-(\d{2})(?:-(\d{2}))?/)))return `${m[1]}-${m[2]}-${m[3]||"01"}`;if((m=s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})/)))return `${m[3]}-${pad(m[2])}-${pad(m[1])}`;return null;};
+const toNum=raw=>{const n=parseFloat(String(raw).replace(/\s/g,"").replace(",","."));return isFinite(n)?n:0;};
+const toBool=raw=>["o","oui","s","sim","y","yes","1","true","x"].includes(String(raw).trim().toLowerCase());
+const toStatus=raw=>{const n=norm(raw);return n.startsWith("rece")||n.startsWith("recu")||n==="r"?"received":n.startsWith("dif")||n.startsWith("ecart")||n==="d"?"discrepancy":"in_transit";};
+function importCSV(kind,text){
+  const rows=parseCSV(text); const known=new Set(S.stores.map(s=>s.code.toUpperCase())); const unknown=new Set(); let out=[];
+  if(kind==="stock"){ out=rows.map(r=>({site:pick(r,"Site").toUpperCase(),ref:pick(r,"Referencia","Reference","Ref"),des:pick(r,"Designacao","Designation"),qty:Math.round(toNum(pick(r,"QtdStock","Qty","Stock"))),last:toDate(pick(r,"DataUltimaVenda","LastSale")),top:toBool(pick(r,"TopVenda","Top"))})).filter(x=>x.site&&x.ref); if(!out.length) return toast("Nenhuma linha reconhecida: verifique os cabeçalhos."); S.stock=out; }
+  else if(kind==="shipments"){ out=rows.map(r=>({no:pick(r,"NumExpedicao","Expedicao","Shipment"),site:pick(r,"SiteDestino","Site").toUpperCase(),date:toDate(pick(r,"DataEnvio","SentDate")),lines:Math.round(toNum(pick(r,"NbLinhas","Lines"))),sent:Math.round(toNum(pick(r,"QtdEnviada","QtySent"))),recv:Math.round(toNum(pick(r,"QtdRecebida","QtyReceived"))),status:toStatus(pick(r,"Estado","Statut","Status"))})).filter(x=>x.no&&x.site); if(!out.length) return toast("Nenhuma linha reconhecida: verifique os cabeçalhos."); S.shipments=out; }
+  else { out=rows.map(r=>({site:pick(r,"Site").toUpperCase(),month:(toDate(pick(r,"Mes","Mois","Month"))||"").slice(0,7),sales:toNum(pick(r,"Vendas","Sales")),target:toNum(pick(r,"Objetivo","Target")),traffic:Math.round(toNum(pick(r,"Trafego","Traffic"))),tickets:Math.round(toNum(pick(r,"Tickets")))})).filter(x=>x.site&&x.month); if(!out.length) return toast("Nenhuma linha reconhecida: verifique os cabeçalhos."); out.forEach(k=>{const i=S.kpis.findIndex(x=>x.site===k.site&&x.month===k.month); if(i>=0)S.kpis[i]=k; else S.kpis.push(k);}); }
+  out.forEach(x=>{ if(!known.has(x.site)) unknown.add(x.site); });
+  S.imports.unshift({kind:kind==="stock"?"Stock":kind==="shipments"?"Expedições":"KPI",at:new Date().toISOString(),rows:out.length,unknown:[...unknown].sort()});
+  toast(`${out.length} linha(s) importada(s)${unknown.size?` · sites sem loja: ${[...unknown].join(", ")}`:""}`); UI.sedeTab="painel"; render();
+}
+
+// ---------- events ----------
+function bind(){
+  root.onclick = e => {
+    const b = e.target.closest("[data-login],[data-act],[data-go],[data-store],[data-filter],[data-nova],[data-done],[data-prog],[data-reopen],[data-toggle],[data-star],[data-rmphoto],[data-acttab],[data-sedetab],[data-agenda],[data-view],[data-mapstore],[data-agview],[data-agshift],[data-agtoday],[data-agday],[data-newplan],[data-planstore],[data-editplan],[data-startvisit],[data-q],[data-train]");
+    if(!b) return;
+    const d=b.dataset;
+    if(d.view){ UI.view=d.view; if(d.view==="rota") UI.routeSel=null; render(); return; }
+    if(d.agview){ UI.agView=d.agview; render(); return; }
+    if(d.agshift){ const n=+d.agshift; const dd=dayOf(UI.agDate); if(Math.abs(n)===30){ dd.setMonth(dd.getMonth()+Math.sign(n)); } else dd.setDate(dd.getDate()+n); UI.agDate=iso(dd); render(); return; }
+    if(d.agtoday){ UI.agDate=TODAY; render(); return; }
+    if(d.agday){ UI.agDate=d.agday; UI.agView="hoje"; render(); return; }
+    if(d.newplan){ openPlan(d.newplan,null,null); return; }
+    if(d.planstore){ openPlan(TODAY,null,+d.planstore); return; }
+    if(d.editplan){ openPlan(null,+d.editplan,null); return; }
+    if(d.startvisit){ const p=S.planned.find(x=>x.id===+d.startvisit); if(!p) return; UI.storeId=p.store; UI.draft=null; go("nova"); UI.draft.planId=p.id; UI.draft.reason=p.reason; render(); return; }
+    if(d.q){ UI.draft.extra[d.q] = UI.draft.extra[d.q]===d.v? "" : d.v; render(); return; }
+    if(d.train){ const arr=UI.draft.extra.training; const i=arr.indexOf(d.train); i>=0?arr.splice(i,1):arr.push(d.train); render(); return; }
+    if(d.act==="more"){ UI.more=!UI.more; render(); return; }
+    if(d.act==="saveplan"){ const p=UI.plan; if(!p.store) return; if(UI.planId){ const x=S.planned.find(y=>y.id===UI.planId); Object.assign(x,{store:+p.store,date:p.date,time:p.time,reason:p.reason,notes:p.notes}); } else { const st=S.stores.find(x=>x.id===+p.store); S.planned.push({id:nextId(S.planned),store:+p.store,sup:st.sup||UI.user,date:p.date,time:p.time,reason:p.reason,notes:p.notes,visitId:null}); } UI.agDate=p.date; UI.agView="hoje"; toast("Visita guardada na agenda"); go("agenda"); return; }
+    if(d.act==="delplan"){ S.planned=S.planned.filter(x=>x.id!==UI.planId); toast("Visita planeada apagada"); go("agenda"); return; }
+    if(d.act==="saveroute"){ const date=$("#routeDate")?.value||TODAY; const list=myStoresFiltered(); const chosen=list.filter(s=>UI.routeSel.includes(s.id)&&s.lat!=null); if(!chosen.length) return; let start=chosen[0]; if(UI.routeStart==="me"&&UI.myPos) start=UI.myPos; else if(UI.routeStart.startsWith("s")) start=list.find(s=>"s"+s.id===UI.routeStart)||chosen[0]; let order=planRoute(start,chosen.filter(s=>s!==start)); if(chosen.includes(start)) order=[start,...order.filter(s=>s!==start)]; let min=9*60+30; order.forEach(s=>{ if(!S.planned.some(p=>p.store===s.id&&p.date===date&&!p.visitId)) S.planned.push({id:nextId(S.planned),store:s.id,sup:s.sup,date,time:`${pad(Math.floor(min/60))}:${pad(min%60)}`,reason:s.noVisit||s.status!=="ok"?"Visita de cadência":"Acompanhamento de ações",notes:s.alerts.slice(0,2).join(" · "),visitId:null}); min+=45+Math.round((order.indexOf(s)<order.length-1?km(s,order[order.indexOf(s)+1]):0)/70*60); }); UI.agDate=date; UI.agView="hoje"; toast(`${order.length} visita(s) guardada(s) na agenda de ${fmtDay(date)}`); go("agenda"); return; }
+    if(d.mapstore){ UI.mapSel = UI.mapSel===+d.mapstore? null : +d.mapstore; render(); return; }
+    if(d.act==="mypos"){ if(!navigator.geolocation){toast("GPS indisponível");return;} navigator.geolocation.getCurrentPosition(p=>{UI.myPos={lat:p.coords.latitude,lng:p.coords.longitude,name:"A minha posição"};render();},()=>toast("Posição recusada ou indisponível"),{enableHighAccuracy:true,timeout:10000}); return; }
+    if(d.act==="applybest"){ const pend=myPlanned().filter(p=>p.date===UI.agDate&&!p.visitId).sort((a,b)=>a.time.localeCompare(b.time)); const st=pend.map(p=>summary(S.stores.find(x=>x.id===p.store))).filter(s=>s.lat!=null); if(st.length<2) return; const first=st[0]; const best=[first,...planRoute(first,st.slice(1))]; let min=(+pend[0].time.slice(0,2))*60+(+pend[0].time.slice(3,5)); const rows=schedule(null,best,min); rows.forEach(r=>{ const p=pend.find(x=>x.store===r.s.id); if(p) p.time=hm(r.arrive); }); toast("Ordem mais curta aplicada · horas recalculadas"); render(); return; }
+    if(d.login){ UI.user=+d.login; UI.screen="lojas"; render(); return; }
+    if(d.go){ go(d.go); return; }
+    if(d.store){ go("loja",+d.store); return; }
+    if(d.nova){ UI.storeId=+d.nova; UI.draft=null; go("nova"); return; }
+    if(d.filter){ UI.filter=d.filter; render(); return; }
+    if(d.acttab){ UI.actTab=d.acttab; render(); return; }
+    if(d.sedetab){ UI.sedeTab=d.sedetab; render(); return; }
+    if(d.agenda){ agenda(+d.agenda); return; }
+    if(d.done||d.prog||d.reopen){ const a=S.actions.find(x=>x.id===+(d.done||d.prog||d.reopen)); if(a){ a.status=d.done?"done":d.prog?"in_progress":"open"; toast(d.done?"Ação fechada":d.prog?"Ação em curso":"Ação reaberta"); render(); } return; }
+    if(d.toggle){ const id=+d.toggle, i=UI.draft.bad.indexOf(id); i>=0?UI.draft.bad.splice(i,1):UI.draft.bad.push(id); render(); return; }
+    if(d.star){ UI.draft.rating = UI.draft.rating===+d.star? null : +d.star; render(); return; }
+    if(d.rmphoto){ UI.draft.photos.splice(+d.rmphoto,1); render(); return; }
+    if(d.act==="logout"){ UI.user=null; UI.draft=null; render(); return; }
+    if(d.act==="reset"){ S=SEED(); save(); toast("Dados de exemplo repostos"); render(); return; }
+    if(d.act==="addphoto"){ $("#f-photo").click(); return; }
+    if(d.act==="geo"){ UI.draft.geoState="asking"; render(); if(!navigator.geolocation){UI.draft.geoState="denied";render();return;} navigator.geolocation.getCurrentPosition(p=>{UI.draft.geo={lat:+p.coords.latitude.toFixed(5),lng:+p.coords.longitude.toFixed(5)};UI.draft.geoState="idle";render();},()=>{UI.draft.geoState="denied";render();},{enableHighAccuracy:true,timeout:10000}); return; }
+    if(d.act==="submit"){ submitVisit(); return; }
+    if(d.act==="addstore"){ const id=nextId(S.stores); S.stores.push({id,name:`Nova loja ${id}`,code:`L${String(100+id)}`,city:"",manager:"",email:"",cad:"B",tempCad:null,tempUntil:null,sup:S.users.find(u=>u.role==="sup").id,active:true}); render(); toast("Loja criada · edite o nome e o código Sage na app real"); return; }
+    if(d.act==="additem"){ S.items.push({id:nextId(S.items),label:"Novo ponto",action:"",days:7,owner:"Responsável loja",active:true}); render(); return; }
+  };
+  root.onchange = e => {
+    const t=e.target;
+    if(t.id==="supFilter"){ UI.supFilter=t.value; render(); return; }
+    if(t.id==="f-store"){ UI.draft.store=t.value; UI.storeId=+t.value||null; render(); return; }
+    if(t.id==="f-at"){ UI.draft.at=t.value; return; }
+    if(t.id==="f-reason"){ UI.draft.reason=t.value; return; }
+    if(t.id==="f-staff"){ UI.draft.extra.staff=t.value; return; }
+    if(t.id==="f-follow"){ UI.draft.extra.followUp=t.value; return; }
+    if(t.id==="p-store"){ UI.plan.store=t.value; render(); return; }
+    if(t.id==="p-date"){ UI.plan.date=t.value; return; }
+    if(t.id==="p-time"){ UI.plan.time=t.value; return; }
+    if(t.id==="p-reason"){ UI.plan.reason=t.value; return; }
+    if(t.dataset.storenotes){ const s=S.stores.find(x=>x.id===+t.dataset.storenotes); if(s){ s.notes=t.value; save(); toast("Notas guardadas"); } return; }
+    if(t.id==="routeStart"){ UI.routeStart=t.value; render(); return; }
+    if(t.dataset.route){ const id=+t.dataset.route; const i=UI.routeSel.indexOf(id); i>=0?UI.routeSel.splice(i,1):UI.routeSel.push(id); render(); return; }
+    if(t.id==="f-photo"){ Array.from(t.files||[]).forEach(f=>{ if(!f.type.startsWith("image/")) return; const img=new Image(); const url=URL.createObjectURL(f); img.onload=()=>{ const c=document.createElement("canvas"); const k=Math.min(1,900/Math.max(img.width,img.height)); c.width=img.width*k; c.height=img.height*k; c.getContext("2d").drawImage(img,0,0,c.width,c.height); UI.draft.photos.push(c.toDataURL("image/jpeg",.8)); URL.revokeObjectURL(url); render(); }; img.src=url; }); t.value=""; return; }
+    if(t.dataset.import){ const f=t.files?.[0]; if(!f) return; const r=new FileReader(); r.onload=()=>importCSV(t.dataset.import,String(r.result)); r.readAsText(f,"utf-8"); t.value=""; return; }
+    if(t.dataset.cfg){ const [k,id]=t.dataset.cfg.split(":"); const v=t.type==="checkbox"?t.checked:t.value;
+      if(k==="set"){ S.settings[id]=Math.max(1,+v||1); }
+      else if(["sup","cad","tempCad","tempUntil","active","lat","lng"].includes(k)){ const s=S.stores.find(x=>x.id===+id); if(s){ if(k==="sup")s.sup=+v; else if(k==="tempCad")s.tempCad=v||null; else if(k==="tempUntil")s.tempUntil=v||null; else if(k==="lat"||k==="lng")s[k]=v===""?null:+v; else s[k]=v; } }
+      else { const i=S.items.find(x=>x.id===+id); if(i){ if(k==="days")i.days=Math.max(0,+v||0); else if(k==="iactive")i.active=v; else i[k]=v; } }
+      save(); toast("Guardado"); return; }
+  };
+  root.oninput = e => { const t=e.target; if(t.id==="f-comment") UI.draft.comment=t.value; else if(t.id==="f-comp") UI.draft.extra.competition=t.value; else if(t.id==="f-next") UI.draft.extra.nextSteps=t.value; else if(t.id==="p-notes") UI.plan.notes=t.value; };
+}
+render();
+})();
+</script>
