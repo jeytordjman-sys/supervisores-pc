@@ -14,6 +14,9 @@ OUT = HERE / "index.html"
 LEAFLET = (
     '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">'
     '<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>\n'
+    # supabase-js (contas reais, dados partilhados) + config.js com url/anonKey; sem config.js → modo demo
+    '<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js"></script>\n'
+    '<script src="config.js"></script>\n'
 )
 
 html = SRC.read_text(encoding="utf-8")

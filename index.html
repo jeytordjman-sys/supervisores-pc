@@ -1,6 +1,8 @@
 <!doctype html>
 <html lang="pt"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"><script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
 <title>Supervisores P&C</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter+Tight:wght@400;500;600;700&display=swap">
@@ -267,14 +269,77 @@ const SEED = () => ({
 });
 
 // ---------- state ----------
+// Dois modos: «demo» (dados de exemplo só neste browser) e «Supabase» (contas reais, dados partilhados,
+// histórico no servidor, e-mails automáticos). O modo Supabase liga-se quando config.js define
+// window.SUPABASE_CONFIG = {url, anonKey} e a biblioteca supabase-js está carregada (build GitHub Pages).
+const CFG = window.SUPABASE_CONFIG || null;
+const REMOTE = !!(CFG && CFG.url && CFG.anonKey && window.supabase);
+const sb = REMOTE ? window.supabase.createClient(CFG.url, CFG.anonKey) : null;
 const KEY="pc-supervisores-proto-v1";
-let S; try{ S = JSON.parse(localStorage.getItem(KEY)||"null"); }catch(e){ S=null; }
-if(!S||!S.stores||!S.reasons||!S.planned||S.settings.maxNoVisit===undefined) S = SEED(); // versão antiga dos dados guardados → repor exemplo
-if(!S.log){ S.log=[]; } // dados guardados antes das contas/histórico → completar
-S.users.forEach(u=>{ if(u.pin===undefined) u.pin=""; if(u.phone===undefined) u.phone=""; if(u.active===undefined) u.active=true; });
-let UI = { user:null, screen:"lojas", storeId:null, filter:"all", supFilter:"all", actTab:"open", sedeTab:"painel", draft:null, view:"lista", routeSel:null, routeStart:"first", mapSel:null, myPos:null, agView:"hoje", agDate:TODAY, plan:null, planId:null, more:false, loginSel:null, signup:null, formErr:"", logUser:"all", logType:"all", logQ:"" };
+const EMPTY = () => ({ settings:SEED().settings, reasons:[], trainings:[], sedeEmail:"", users:[], items:[], stores:[], planned:[], visits:[], actions:[], stock:[], shipments:[], kpis:[], outbox:[], imports:[], log:[] });
+let S;
+if(REMOTE){ S = EMPTY(); }
+else {
+  try{ S = JSON.parse(localStorage.getItem(KEY)||"null"); }catch(e){ S=null; }
+  if(!S||!S.stores||!S.reasons||!S.planned||S.settings.maxNoVisit===undefined) S = SEED(); // versão antiga dos dados guardados → repor exemplo
+  if(!S.log){ S.log=[]; } // dados guardados antes das contas/histórico → completar
+  S.users.forEach(u=>{ if(u.pin===undefined) u.pin=""; if(u.phone===undefined) u.phone=""; if(u.active===undefined) u.active=true; });
+}
+let UI = { user:null, screen:"lojas", storeId:null, filter:"all", supFilter:"all", actTab:"open", sedeTab:"painel", draft:null, view:"lista", routeSel:null, routeStart:"first", mapSel:null, myPos:null, agView:"hoje", agDate:TODAY, plan:null, planId:null, more:false, loginSel:null, signup:null, formErr:"", logUser:"all", logType:"all", logQ:"", auth:null, loading:false };
 try{ const u = JSON.parse(sessionStorage.getItem(KEY+"-ui")||"null"); if(u) UI = {...UI, ...u, draft:null}; }catch(e){}
-const save = () => { try{ localStorage.setItem(KEY, JSON.stringify(S)); sessionStorage.setItem(KEY+"-ui", JSON.stringify({user:UI.user,screen:UI.screen,storeId:UI.storeId,sedeTab:UI.sedeTab})); }catch(e){} };
+if(REMOTE){ UI.user=null; UI.loading=true; } // a sessão é confirmada pelo Supabase, não pelo sessionStorage
+const save = () => { try{ if(!REMOTE) localStorage.setItem(KEY, JSON.stringify(S)); sessionStorage.setItem(KEY+"-ui", JSON.stringify({user:UI.user,screen:UI.screen,storeId:UI.storeId,sedeTab:UI.sedeTab})); }catch(e){} };
+
+// ---------- camada de dados Supabase ----------
+// As tabelas têm colunas snake_case; a app usa camelCase. Escrita «write-through»: a app altera S e
+// chama dbPut/dbDel; o Realtime devolve as alterações (as nossas e as dos outros) e volta a desenhar.
+const SNAKE={user:"user_id",to:"to_label"}, CAMEL={user_id:"user",to_label:"to"};
+const snake = k => SNAKE[k] || k.replace(/[A-Z]/g,m=>"_"+m.toLowerCase());
+const camel = k => CAMEL[k] || k.replace(/_([a-z])/g,(_,c)=>c.toUpperCase());
+const toRow = o => Object.fromEntries(Object.entries(o).filter(([k])=>!k.startsWith("_")).map(([k,v])=>[snake(k),v]));
+const fromRow = r => Object.fromEntries(Object.entries(r).map(([k,v])=>[camel(k),v]));
+const TABLES = {profiles:"users",items:"items",stores:"stores",planned:"planned",visits:"visits",actions:"actions",stock:"stock",shipments:"shipments",kpis:"kpis",imports:"imports",outbox:"outbox",activity:"log"};
+const ORDER = {activity:["at",false],outbox:["at",false],imports:["at",false]};
+const genId = () => Date.now()*1000 + Math.floor(Math.random()*1000); // único entre utilizadores sem ir ao servidor
+const newId = arr => REMOTE ? genId() : nextId(arr);
+const uid = v => REMOTE ? v : +v; // ids de conta: uuid (Supabase) ou número (demo)
+const dbErr = (what,e) => { console.error(what,e); toast(`Erro ao guardar (${what}): ${e.message||e}`); };
+async function dbPut(table,obj){ if(!REMOTE) return; const {error}=await sb.from(table).upsert(toRow(obj)); if(error) dbErr(table,error); }
+async function dbDel(table,id){ if(!REMOTE) return; const {error}=await sb.from(table).delete().eq("id",id); if(error) dbErr(table,error); }
+async function dbReplace(table,rows,keyCol){ if(!REMOTE) return; const d=await sb.from(table).delete().neq(keyCol,"\u0000"); if(d.error) return dbErr(table,d.error); for(let i=0;i<rows.length;i+=500){ const {error}=await sb.from(table).insert(rows.slice(i,i+500).map(toRow)); if(error) return dbErr(table,error); } }
+async function dbUpsertMany(table,rows){ if(!REMOTE) return; for(let i=0;i<rows.length;i+=500){ const {error}=await sb.from(table).upsert(rows.slice(i,i+500).map(toRow)); if(error) return dbErr(table,error); } }
+async function loadTable(t){
+  if(t==="settings"){ const {data,error}=await sb.from("settings").select("*").eq("id",1).maybeSingle(); if(error) return dbErr("settings",error); if(data){ const r=fromRow(data); S.settings={cadA:r.cadA,cadB:r.cadB,cadC:r.cadC,dormant:r.dormant,noShip:r.noShip,dueSoon:r.dueSoon,maxNoVisit:r.maxNoVisit}; S.reasons=r.reasons||[]; S.trainings=r.trainings||[]; S.sedeEmail=r.sedeEmail||""; } return; }
+  let q=sb.from(t).select("*"); if(ORDER[t]) q=q.order(ORDER[t][0],{ascending:ORDER[t][1]}); if(t==="activity") q=q.limit(2000);
+  const {data,error}=await q; if(error) return dbErr(t,error);
+  S[TABLES[t]] = (data||[]).map(fromRow);
+}
+async function loadAll(){ await Promise.all(["settings",...Object.keys(TABLES)].map(loadTable)); }
+const dirty=new Set(); let rtT;
+function startRealtime(){
+  sb.channel("app").on("postgres_changes",{event:"*",schema:"public"},p=>{ dirty.add(p.table); clearTimeout(rtT); rtT=setTimeout(async()=>{ const ts=[...dirty]; dirty.clear(); await Promise.all(ts.map(loadTable)); render(); },400); }).subscribe();
+}
+async function startSession(session){
+  if(!session){ UI.user=null; UI.loading=false; render(); return; }
+  UI.loading=true; render();
+  await loadAll();
+  if(!S.users.some(u=>u.id===session.user.id)){ // perfil ainda não criado (trigger em falta): cria o mínimo
+    await dbPut("profiles",{id:session.user.id,name:session.user.user_metadata?.name||session.user.email.split("@")[0],email:session.user.email,phone:session.user.user_metadata?.phone||""}); await loadTable("profiles");
+  }
+  UI.user=session.user.id; UI.loading=false; UI.auth=null;
+  if(!startRealtime.done){ startRealtime(); startRealtime.done=true; }
+  if(user()?.active && !startSession.logged){ startSession.logged=true; logE("Entrou na app","conta"); }
+  if(!UI.screen||UI.screen==="loja"&&!UI.storeId) UI.screen="lojas";
+  render();
+}
+if(REMOTE){
+  sb.auth.onAuthStateChange((ev,session)=>{
+    if(ev==="PASSWORD_RECOVERY"){ UI.auth={mode:"newpass",email:"",password:"",name:"",phone:"",err:"",msg:""}; UI.user=null; render(); return; }
+    if(ev==="SIGNED_OUT"){ UI.user=null; UI.draft=null; startSession.logged=false; render(); return; }
+    if((ev==="SIGNED_IN"||ev==="INITIAL_SESSION")&&session&&!UI.user) startSession(session);
+    if(ev==="INITIAL_SESSION"&&!session){ UI.loading=false; render(); }
+  });
+}
 
 // ---------- helpers ----------
 const $ = (s,el=document)=>el.querySelector(s);
@@ -289,7 +354,7 @@ const fmtDay = d => d? `${pad(new Date(d).getDate())}/${pad(new Date(d).getMonth
 const fmtDate = d => d? `${fmtDay(d)}/${new Date(d).getFullYear()}` : "—";
 const fmtDT = d => d? `${fmtDate(d)} ${pad(new Date(d).getHours())}:${pad(new Date(d).getMinutes())}` : "—";
 const money = n => n==null? "—" : new Intl.NumberFormat("pt-PT",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(n);
-const nextId = arr => arr.reduce((m,x)=>Math.max(m,x.id),0)+1;
+const nextId = arr => arr.reduce((m,x)=>Math.max(m,+x.id||0),0)+1;
 const user = () => S.users.find(u=>u.id===UI.user);
 const isAdmin = () => user()?.role==="admin";
 const cadDays = c => c==="A"? S.settings.cadA : c==="B"? S.settings.cadB : S.settings.cadC;
@@ -300,8 +365,10 @@ let toastT; const toast = m => { const t=$("#toast"); t.textContent=m; t.classLi
 
 // ---------- histórico (quem fez o quê, quando) ----------
 function logE(action, entity, detail="", store=null){
-  S.log.unshift({id:(S.log[0]?.id||0)+1, at:new Date().toISOString().slice(0,19), user:UI.user, entity, action, detail:String(detail||""), store});
+  const e={id:REMOTE?genId():(S.log[0]?.id||0)+1, at:new Date().toISOString().slice(0,19), user:UI.user, entity, action, detail:String(detail||""), store};
+  S.log.unshift(e);
   if(S.log.length>3000) S.log.length=3000;
+  dbPut("activity",e); // no servidor, a conta e a hora são carimbadas por trigger (inviolável)
 }
 const userName = id => S.users.find(u=>u.id===id)?.name || "—";
 
@@ -444,7 +511,8 @@ const I = {
 const root = $("#root");
 function render(){
   save();
-  if(UI.user && !(user()&&user().active)) UI.user=null; // conta apagada/desativada entretanto
+  if(REMOTE){ if(UI.loading||!UI.user||!user()?.active){ root.innerHTML = LoginRemote(); bind(); return; } }
+  else if(UI.user && !(user()&&user().active)) UI.user=null; // conta apagada/desativada entretanto
   if(!UI.user){ root.innerHTML = Login(); bind(); return; }
   if(UI.screen==="sede" && !isAdmin()) UI.screen="lojas";
   const tabs = [["lojas","Lojas",I.store],["agenda","Agenda",I.cal],["nova","Visita",I.plus],["acoes","Ações",I.check]].concat(isAdmin()?[["sede","Bastidor",I.hq]]:[]);
@@ -475,6 +543,38 @@ function Login(){
     <p class="demo">Protótipo: os dados ficam guardados só neste telemóvel/browser. Conta «Sede» de exemplo: PIN 1234.</p>
     <button class="btn ghost sm" data-act="reset">Repor dados de exemplo</button>
   </div></div>`;
+}
+// Entrada em modo Supabase: e-mail + password (contas reais). A primeira conta criada é a Sede;
+// as seguintes ficam «a aguardar ativação» até a Sede as ativar no Bastidor → Contas.
+function LoginRemote(){
+  const head=`<div><span class="mark">P&amp;C</span><h1 style="margin-top:12px">Supervisores</h1><p class="muted">Visitas às lojas · Perfumes &amp; Companhia</p></div>`;
+  if(UI.loading) return `<div class="login"><div class="card">${head}<p class="muted">A ligar…</p></div></div>`;
+  if(UI.user&&user()&&!user().active) return `<div class="login"><div class="card">${head}<p style="margin:0">Olá, <b>${esc(user().name)}</b>. A sua conta foi criada e <b>aguarda ativação pela Sede</b>. Assim que for ativada e lhe forem atribuídas lojas, basta voltar a entrar.</p><button class="btn ghost sm" data-act="logout">Sair</button></div></div>`;
+  const a=UI.auth||(UI.auth={mode:"login",email:"",password:"",name:"",phone:"",err:"",msg:""});
+  const f=(id,label,type,extra="")=>`<label class="field"><span>${label}</span><input id="${id}" type="${type}" value="${esc(a[id.slice(3)])}" ${extra}></label>`;
+  const msgs=`${a.err?`<p class="late-t" style="margin:0">${esc(a.err)}</p>`:""}${a.msg?`<p class="ok-t" style="margin:0">${esc(a.msg)}</p>`:""}`;
+  if(a.mode==="signup") return `<div class="login"><form class="card" data-form="auth-signup">${head}<h2>Criar a minha conta</h2>
+    ${f("au-name","Nome *","text",'required autocomplete="name"')}${f("au-email","E-mail *","email",'required autocomplete="email"')}${f("au-phone","Telemóvel (WhatsApp)","tel",'placeholder="+351 9…" autocomplete="tel"')}${f("au-password","Password * (mín. 8 caracteres)","password",'required minlength="8" autocomplete="new-password"')}
+    ${msgs}<button class="btn lg" type="submit">Criar conta</button><button class="btn ghost sm" type="button" data-authmode="login">← Já tenho conta</button></form></div>`;
+  if(a.mode==="reset") return `<div class="login"><form class="card" data-form="auth-reset">${head}<h2>Recuperar password</h2><p class="muted" style="margin:0">Enviamos um e-mail com uma ligação para definir uma password nova.</p>
+    ${f("au-email","E-mail","email",'required autocomplete="email"')}${msgs}<button class="btn lg" type="submit">Enviar e-mail</button><button class="btn ghost sm" type="button" data-authmode="login">← Voltar</button></form></div>`;
+  if(a.mode==="newpass") return `<div class="login"><form class="card" data-form="auth-newpass">${head}<h2>Nova password</h2>
+    ${f("au-password","Password nova (mín. 8 caracteres)","password",'required minlength="8" autocomplete="new-password"')}${msgs}<button class="btn lg" type="submit">Guardar e entrar</button></form></div>`;
+  return `<div class="login"><form class="card" data-form="auth-login">${head}
+    ${f("au-email","E-mail","email",'required autocomplete="email"')}${f("au-password","Password","password",'required autocomplete="current-password"')}
+    ${msgs}<button class="btn lg" type="submit">Entrar</button>
+    <div class="inline" style="justify-content:space-between"><button class="btn ghost sm" type="button" data-authmode="signup">+ Criar a minha conta</button><button class="btn ghost sm" type="button" data-authmode="reset">Esqueci-me da password</button></div></form></div>`;
+}
+const authMsg = e => { const m=String(e?.message||e||""); return /Failed to fetch|NetworkError|Load failed/i.test(m)?"Sem ligação ao servidor. Verifique a internet e tente de novo.":/Invalid login/i.test(m)?"E-mail ou password errados.":/already registered|already exists/i.test(m)?"Já existe uma conta com este e-mail.":/Password should be/i.test(m)?"A password tem de ter pelo menos 8 caracteres.":/rate limit/i.test(m)?"Demasiadas tentativas; aguarde um minuto.":/Email not confirmed/i.test(m)?"Confirme primeiro o e-mail que lhe enviámos.":m||"Erro desconhecido."; };
+async function authSubmit(form){
+  const a=UI.auth; a.err=""; a.msg="";
+  try{
+    if(form==="auth-login"){ const {error}=await sb.auth.signInWithPassword({email:a.email.trim(),password:a.password}); if(error) throw error; }
+    else if(form==="auth-signup"){ if(!a.name.trim()) throw new Error("O nome é obrigatório."); const {data,error}=await sb.auth.signUp({email:a.email.trim(),password:a.password,options:{data:{name:a.name.trim(),phone:a.phone.trim()}}}); if(error) throw error; if(!data.session){ a.mode="login"; a.msg="Conta criada. Confirme o e-mail que lhe enviámos e depois entre."; } }
+    else if(form==="auth-reset"){ const {error}=await sb.auth.resetPasswordForEmail(a.email.trim(),{redirectTo:location.origin+location.pathname}); if(error) throw error; a.msg="E-mail enviado. Abra a ligação no telemóvel onde quer usar a app."; }
+    else if(form==="auth-newpass"){ const {error}=await sb.auth.updateUser({password:a.password}); if(error) throw error; a.password=""; const {data}=await sb.auth.getSession(); if(data.session){ UI.auth=null; startSession(data.session); return; } a.mode="login"; a.msg="Password alterada. Entre com a password nova."; }
+  }catch(e){ a.err=authMsg(e); }
+  render();
 }
 function Signup(adminMode){
   const d=UI.signup;
@@ -523,7 +623,7 @@ function Lojas(){
       <div class="badges">${s.noVisit&&s.last?`<span class="badge late">⏱ Sem visita há ${s.noVisitDays} dias</span>`:""}${s.open?`<span class="badge ${s.late?"late":""}">${s.open} ação(ões)${s.late?` · ${s.late} em atraso`:""}</span>`:""}${s.alerts.filter(a=>!a.includes("ação")&&!a.startsWith("Sem visita")&&a!=="Nunca visitada").map(a=>`<span class="badge alert">⚠️ ${esc(a)}</span>`).join("")}</div>
     </div><span style="color:var(--muted)">›</span></button><div class="inline" style="margin-top:-6px;padding:0 4px 4px">${navBtn(s,"btn sm ghost")}</div></li>`).join("")}</ul>`
     : `<p class="muted" style="text-align:center;padding:32px 0">${UI.filter==="all"?"Nenhuma loja atribuída. A Sede atribui as lojas no Bastidor → Configuração.":"Nada a assinalar. 👍"}</p>`}
-  <p class="demo">Dados de exemplo · protótipo</p>`;
+  ${REMOTE?"":`<p class="demo">Dados de exemplo · protótipo</p>`}`;
 }
 function myStoresFiltered(){ let l=myStores(); if(isAdmin()&&UI.supFilter!=="all") l=l.filter(s=>String(s.sup)===UI.supFilter); return l; }
 function MapView(list){
@@ -580,7 +680,8 @@ function Loja(){
     ${v.extra?`<div class="kv">${v.extra.managerPresent?`<span>Responsável presente</span><span>${esc(v.extra.managerPresent)}</span>`:""}${v.extra.staff?`<span>Colaboradores presentes</span><span>${v.extra.staff}</span>`:""}${v.extra.salesFeel?`<span>Vendas vs objetivo</span><span>${esc(v.extra.salesFeel)}</span>`:""}${v.extra.promoOk?`<span>Promoção em vigor</span><span>${esc(v.extra.promoOk)}</span>`:""}${v.extra.training&&v.extra.training.length?`<span>Formação a dar</span><span>${esc(v.extra.training.join(", "))}</span>`:""}${v.extra.competition?`<span>Concorrência</span><span>${esc(v.extra.competition)}</span>`:""}${v.extra.nextSteps?`<span>Próximos passos</span><span>${esc(v.extra.nextSteps)}</span>`:""}${v.extra.followUp?`<span>Follow-up</span><span>${fmtDate(v.extra.followUp)}</span>`:""}</div>`:""}
     ${v.photos.length?`<div class="photos">${v.photos.map(p=>`<span class="photo"><img src="${p}" alt=""></span>`).join("")}</div>`:""}
     ${v.lat!=null?`<a href="https://maps.google.com/?q=${v.lat},${v.lng}" target="_blank" rel="noreferrer" style="font-size:.85rem">📍 posição registada</a>`:""}
-    <p class="${v.sent?"muted":"late-t"}" style="margin:0;font-size:.85rem">${v.sent?`✓ Relatório enviado${v.sentVia&&v.sentVia.length?` · ${v.sentVia.map(x=>`${x.via} ${fmtDT(x.at)}`).join(" · ")}`:""}`:"Relatório ainda não enviado"}</p>
+    ${(()=>{const ob=REMOTE?S.outbox.find(m=>m.visit===v.id):null; return ob?`<p class="${ob.status==="sent"?"ok-t":ob.status==="error"?"late-t":"muted"}" style="margin:0;font-size:.85rem">✉️ E-mail automático ao responsável: ${ob.status==="sent"?`enviado ${fmtDT(ob.sentAt)}`:ob.status==="error"?`falhou (${esc(ob.error||"")})`:ob.status==="skipped"?"sem e-mail da loja":"a enviar…"}</p>`:"";})()}
+    <p class="${v.sent?"muted":"late-t"}" style="margin:0;font-size:.85rem">${v.sent?`✓ Relatório enviado${v.sentVia&&v.sentVia.length?` · ${v.sentVia.map(x=>`${x.via} ${fmtDT(x.at)}`).join(" · ")}`:""}`:"Relatório ainda não enviado por WhatsApp"}</p>
     ${shareRow(v)}</div>`; };
   const hist=S.log.filter(x=>x.store===s.id);
   return `<button class="link" data-go="lojas" style="align-self:flex-start;padding-left:0">← Lojas</button>
@@ -663,17 +764,20 @@ function submitVisit(){
   const d=UI.draft; const store=S.stores.find(x=>x.id===+d.store); if(!store) return;
   const miss=missingExtra(d); if(miss.length){ toast(`Faltam respostas obrigatórias: ${miss.map(k=>REQ_LABELS[k]).join(", ")}`); return; }
   const ex={...d.extra, staff:d.extra.staff===""?"":+d.extra.staff};
-  const v={id:nextId(S.visits),store:store.id,sup:UI.user,at:d.at,reason:d.reason,rating:d.rating,comment:d.comment.trim(),bad:[...d.bad],photos:d.photos,lat:d.geo?.lat??null,lng:d.geo?.lng??null,sent:false,sentVia:[],extra:ex};
+  const v={id:newId(S.visits),store:store.id,sup:UI.user,at:d.at,reason:d.reason,rating:d.rating,comment:d.comment.trim(),bad:[...d.bad],photos:d.photos,lat:d.geo?.lat??null,lng:d.geo?.lng??null,sent:false,sentVia:[],extra:ex};
   S.visits.push(v);
-  if(ex.priority) store.priority=ex.priority;
+  if(ex.priority&&store.priority!==ex.priority){ store.priority=ex.priority; dbPut("stores",store); }
   const pl = d.planId? S.planned.find(p=>p.id===d.planId) : S.planned.find(p=>p.store===store.id&&!p.visitId&&p.date===d.at.slice(0,10));
-  if(pl) pl.visitId=v.id;
-  if(ex.followUp){ S.planned.push({id:nextId(S.planned),store:store.id,sup:UI.user,date:ex.followUp,time:"10:00",reason:"Acompanhamento de ações",notes:ex.nextSteps||"Follow-up da visita de "+fmtDate(d.at),visitId:null}); }
+  if(pl){ pl.visitId=v.id; }
   const created=[];
   for(const id of d.bad){ const it=S.items.find(i=>i.id===id); if(!it) continue;
-    const a={id:nextId(S.actions),store:store.id,visit:v.id,item:it.id,title:`${it.label} – ${store.name}`,owner:it.owner,status:"open",due:iso(addDays(new Date(d.at),it.days)),notes:it.action};
+    const a={id:newId(S.actions),store:store.id,visit:v.id,item:it.id,title:`${it.label} – ${store.name}`,owner:it.owner,status:"open",due:iso(addDays(new Date(d.at),it.days)),notes:it.action};
     S.actions.push(a); created.push(a); }
-  S.outbox.unshift({at:new Date().toISOString(),to:`${store.email} (cc ${user().email})`,subject:`Relatório de visita — ${store.name}`,body:reportText(v),visit:v.id});
+  const mail={id:newId(S.outbox),at:new Date().toISOString(),to:`${store.email||"(loja sem e-mail)"} (cc ${user().email})`,toEmail:store.email||"",ccEmail:user().email||"",toUser:null,subject:`Relatório de visita — ${store.name}`,body:reportText(v),visit:v.id,status:"pending"};
+  S.outbox.unshift(mail);
+  // ordem importa no servidor: visita → ações → planeada → mensagem (chaves estrangeiras)
+  (async()=>{ await dbPut("visits",v); await Promise.all(created.map(a=>dbPut("actions",a))); if(pl) await dbPut("planned",pl); await dbPut("outbox",mail); })();
+  if(ex.followUp){ const fp={id:newId(S.planned),store:store.id,sup:UI.user,date:ex.followUp,time:"10:00",reason:"Acompanhamento de ações",notes:ex.nextSteps||"Follow-up da visita de "+fmtDate(d.at),visitId:null}; S.planned.push(fp); dbPut("planned",fp); }
   logE("Registou visita","visita",`${v.reason} · ${d.bad.length} não conforme(s) · ${created.length} ação(ões)`,store.id);
   created.forEach(a=>logE("Criou ação","acao",`${a.title} · prazo ${fmtDate(a.due)}`,store.id));
   if(ex.followUp) logE("Planeou follow-up","agenda",`${store.name} · ${fmtDate(ex.followUp)}`,store.id);
@@ -685,7 +789,7 @@ function markSent(visitId, via){
   const v=S.visits.find(x=>x.id===visitId); if(!v) return;
   v.sent=true; (v.sentVia=v.sentVia||[]).push({via,at:new Date().toISOString().slice(0,19),user:UI.user});
   logE("Enviou relatório por "+via,"relatorio",S.stores.find(s=>s.id===v.store)?.name||"",v.store);
-  save();
+  dbPut("visits",v); save();
 }
 
 // ---------- agenda ----------
@@ -796,12 +900,14 @@ function Sede(){
 function Contas(){
   const lastIn=u=>S.log.find(l=>l.user===u.id&&l.entity==="conta"&&/Entrou|entrou/.test(l.action))?.at;
   const sel=(id,val,opts)=>`<select data-ucfg="${id}" style="min-width:130px">${opts.map(([v,l])=>`<option value="${v}" ${String(val)===String(v)?"selected":""}>${l}</option>`).join("")}</select>`;
-  return `<section class="card"><div class="row"><h2>Contas</h2>${UI.signup?"":`<button class="btn sm" data-act="newaccount">+ Conta</button>`}</div>
-    <p class="muted">Cada pessoa entra com a sua conta e só vê as suas lojas; as contas «Sede» veem tudo e este Bastidor. O PIN é opcional (4 dígitos). As lojas atribuem-se em <button class="link" data-sedetab="config" style="padding:0;color:var(--accent)">Configuração</button>.</p>
+  const pending=S.users.filter(u=>!u.active&&!lastIn(u)).length;
+  return `<section class="card"><div class="row"><h2>Contas</h2>${UI.signup||REMOTE?"":`<button class="btn sm" data-act="newaccount">+ Conta</button>`}</div>
+    ${REMOTE?`<p class="muted">Cada pessoa cria a sua conta no ecrã de entrada (e-mail + password). As contas novas ficam <b>a aguardar ativação</b>: ative-as aqui, escolha o perfil e atribua as lojas em <button class="link" data-sedetab="config" style="padding:0;color:var(--accent)">Configuração</button>. Só então a pessoa vê alguma coisa.</p>${pending?`<div class="hint">👤 ${pending} conta(s) à espera de ativação.</div>`:""}`
+    :`<p class="muted">Cada pessoa entra com a sua conta e só vê as suas lojas; as contas «Sede» veem tudo e este Bastidor. O PIN é opcional (4 dígitos). As lojas atribuem-se em <button class="link" data-sedetab="config" style="padding:0;color:var(--accent)">Configuração</button>.</p>`}
     ${UI.signup?Signup(true):""}
-    <div class="scroll"><table><thead><tr><th>Nome</th><th>E-mail</th><th>Telemóvel (WhatsApp)</th><th>Perfil</th><th>PIN</th><th class="num">Lojas</th><th>Último acesso</th><th>Ativa</th></tr></thead><tbody>
-    ${S.users.map(u=>{const me=u.id===UI.user; const n=S.stores.filter(s=>s.sup===u.id&&s.active).length; return `<tr style="${u.active?"":"opacity:.55"}"><td><input data-ucfg="name:${u.id}" value="${esc(u.name)}" style="min-width:150px">${me?`<div class="muted" style="font-size:.75rem">eu</div>`:""}</td><td><input data-ucfg="email:${u.id}" type="email" value="${esc(u.email)}" style="min-width:200px"></td><td><input data-ucfg="phone:${u.id}" type="tel" value="${esc(u.phone||"")}" placeholder="+351 9…" style="min-width:150px"></td><td>${sel(`role:${u.id}`,u.role,[["sup","Supervisor"],["admin","Sede / bastidor"]])}</td><td><input data-ucfg="pin:${u.id}" inputmode="numeric" maxlength="4" value="" placeholder="${u.pin?"•••• alterar":"sem PIN"}" style="width:110px" autocomplete="off"></td><td class="num">${u.role==="admin"?"todas":n}</td><td class="muted" style="white-space:nowrap">${lastIn(u)?fmtDT(lastIn(u)):"—"}</td><td><input type="checkbox" data-ucfg="active:${u.id}" ${u.active?"checked":""} style="width:22px;height:22px;min-height:0"></td></tr>`;}).join("")}</tbody></table></div>
-    <p class="muted">Para retirar o PIN a alguém, escreva 0000 e depois apague: fica sem PIN. Não é possível desativar a própria conta nem a última conta Sede.</p></section>`;
+    <div class="scroll"><table><thead><tr><th>Nome</th><th>E-mail</th><th>Telemóvel (WhatsApp)</th><th>Perfil</th>${REMOTE?"":"<th>PIN</th>"}<th class="num">Lojas</th><th>Último acesso</th><th>Ativa</th></tr></thead><tbody>
+    ${S.users.map(u=>{const me=u.id===UI.user; const n=S.stores.filter(s=>s.sup===u.id&&s.active).length; return `<tr style="${u.active?"":"opacity:.7"}"><td><input data-ucfg="name:${u.id}" value="${esc(u.name)}" style="min-width:150px">${me?`<div class="muted" style="font-size:.75rem">eu</div>`:!u.active?`<div class="late-t" style="font-size:.75rem">aguarda ativação</div>`:""}</td><td><input data-ucfg="email:${u.id}" type="email" value="${esc(u.email)}" style="min-width:200px" ${REMOTE?"readonly":""}></td><td><input data-ucfg="phone:${u.id}" type="tel" value="${esc(u.phone||"")}" placeholder="+351 9…" style="min-width:150px"></td><td>${sel(`role:${u.id}`,u.role,[["sup","Supervisor"],["admin","Sede / bastidor"]])}</td>${REMOTE?"":`<td><input data-ucfg="pin:${u.id}" inputmode="numeric" maxlength="4" value="" placeholder="${u.pin?"•••• alterar":"sem PIN"}" style="width:110px" autocomplete="off"></td>`}<td class="num">${u.role==="admin"?"todas":n}</td><td class="muted" style="white-space:nowrap">${lastIn(u)?fmtDT(lastIn(u)):"—"}</td><td><input type="checkbox" data-ucfg="active:${u.id}" ${u.active?"checked":""} style="width:22px;height:22px;min-height:0"></td></tr>`;}).join("")}</tbody></table></div>
+    <p class="muted">${REMOTE?"":"Para retirar o PIN a alguém, escreva 0000 e depois apague: fica sem PIN. "}Não é possível desativar a própria conta nem a última conta Sede.</p></section>`;
 }
 function Historico(){
   const types=[["all","Tudo"],["visita","Visitas"],["relatorio","Relatórios"],["acao","Ações"],["agenda","Agenda"],["loja","Lojas"],["conta","Contas"],["config","Configuração"],["import","Imports"]];
@@ -809,7 +915,7 @@ function Historico(){
   if(UI.logUser!=="all") l=l.filter(x=>String(x.user)===UI.logUser);
   if(UI.logType!=="all") l=l.filter(x=>x.entity===UI.logType);
   if(UI.logQ.trim()){ const q=norm(UI.logQ); l=l.filter(x=>norm(x.action+" "+x.detail+" "+(S.stores.find(s=>s.id===x.store)?.name||"")+" "+userName(x.user)).includes(q)); }
-  const byDay={}; l.slice(0,400).forEach(x=>{ const k=x.at.slice(0,10); (byDay[k]=byDay[k]||[]).push(x); });
+  const byDay={}; l.slice(0,400).forEach(x=>{ const k=iso(new Date(x.at)); (byDay[k]=byDay[k]||[]).push(x); });
   return `<section class="card"><div class="row"><h2>Histórico de alterações</h2><span class="muted">${l.length} registo(s)</span></div>
     <p class="muted">Tudo o que cada conta fez na app: visitas, relatórios enviados, ações, agenda, configuração, imports. Na app real este registo é inviolável (escrito pelo servidor).</p>
     <div class="inline"><select id="logUser" style="width:auto;min-width:170px"><option value="all">Todas as contas</option>${S.users.map(u=>`<option value="${u.id}" ${UI.logUser===String(u.id)?"selected":""}>${esc(u.name)}</option>`).join("")}</select><input id="logQ" placeholder="Procurar (loja, ação, texto…)" value="${esc(UI.logQ)}" style="flex:1;min-width:180px"><button class="btn sm outline" data-act="logcsv">⬇ Copiar CSV</button></div>
@@ -834,13 +940,13 @@ function Painel(){
 function Config(){
   const st=S.settings;
   const sel=(id,val,opts)=>`<select data-cfg="${id}">${opts.map(([v,l])=>`<option value="${v}" ${String(val)===String(v)?"selected":""}>${l}</option>`).join("")}</select>`;
-  return `<section class="card"><h2>Lojas e cadências</h2><p class="muted">O supervisor escolhido vê a loja na sua lista. O telemóvel é o do responsável, usado para o relatório por WhatsApp. Latitude / longitude servem para o mapa e a rota.</p><div class="scroll"><table><thead><tr><th>Loja</th><th>Sage</th><th>Supervisor</th><th>Telemóvel responsável</th><th>Cadência</th><th>Temporária</th><th>até</th><th>Lat</th><th>Lng</th><th>Ativa</th></tr></thead><tbody>
-    ${S.stores.map(s=>`<tr><td>${esc(s.name)}<div class="muted">${esc(s.city)} · ${esc(s.manager)}</div></td><td>${esc(s.code)}</td><td>${sel(`sup:${s.id}`,s.sup,S.users.filter(u=>u.role==="sup"&&(u.active||u.id===s.sup)).map(u=>[u.id,u.name+(u.active?"":" (inativa)")]))}</td><td><input type="tel" data-cfg="phone:${s.id}" value="${esc(s.phone||"")}" placeholder="+351 9…" style="min-width:150px"></td><td>${sel(`cad:${s.id}`,s.cad,[["A","A · 2 sem."],["B","B · mês"],["C","C · trim."]])}</td><td>${sel(`tempCad:${s.id}`,s.tempCad||"",[["","—"],["A","A"],["B","B"],["C","C"]])}</td><td><input type="date" data-cfg="tempUntil:${s.id}" value="${s.tempUntil||""}" style="min-width:150px"></td><td><input type="number" step="0.0001" data-cfg="lat:${s.id}" value="${s.lat??""}" style="width:110px"></td><td><input type="number" step="0.0001" data-cfg="lng:${s.id}" value="${s.lng??""}" style="width:110px"></td><td><input type="checkbox" data-cfg="active:${s.id}" ${s.active?"checked":""} style="width:22px;height:22px;min-height:0"></td></tr>`).join("")}</tbody></table></div>
+  return `<section class="card"><h2>Lojas e cadências</h2><p class="muted">O supervisor escolhido vê a loja na sua lista. O telemóvel e o e-mail são os do responsável da loja: recebem o relatório (WhatsApp / e-mail automático). Latitude / longitude servem para o mapa e a rota.</p><div class="scroll"><table><thead><tr><th>Loja</th><th>Cidade</th><th>Sage</th><th>Supervisor</th><th>Responsável</th><th>Telemóvel</th><th>E-mail loja</th><th>Cadência</th><th>Temporária</th><th>até</th><th>Lat</th><th>Lng</th><th>Ativa</th></tr></thead><tbody>
+    ${S.stores.map(s=>`<tr><td><input data-cfg="name:${s.id}" value="${esc(s.name)}" style="min-width:160px"></td><td><input data-cfg="city:${s.id}" value="${esc(s.city)}" style="min-width:110px"></td><td><input data-cfg="code:${s.id}" value="${esc(s.code)}" style="width:80px"></td><td>${sel(`sup:${s.id}`,s.sup??"",[["","— sem supervisor —"]].concat(S.users.filter(u=>u.role==="sup"&&(u.active||u.id===s.sup)).map(u=>[u.id,u.name+(u.active?"":" (inativa)")])))}</td><td><input data-cfg="manager:${s.id}" value="${esc(s.manager||"")}" style="min-width:130px"></td><td><input type="tel" data-cfg="phone:${s.id}" value="${esc(s.phone||"")}" placeholder="+351 9…" style="min-width:140px"></td><td><input type="email" data-cfg="email:${s.id}" value="${esc(s.email||"")}" style="min-width:180px"></td><td>${sel(`cad:${s.id}`,s.cad,[["A","A · 2 sem."],["B","B · mês"],["C","C · trim."]])}</td><td>${sel(`tempCad:${s.id}`,s.tempCad||"",[["","—"],["A","A"],["B","B"],["C","C"]])}</td><td><input type="date" data-cfg="tempUntil:${s.id}" value="${s.tempUntil||""}" style="min-width:150px"></td><td><input type="number" step="0.0001" data-cfg="lat:${s.id}" value="${s.lat??""}" style="width:110px"></td><td><input type="number" step="0.0001" data-cfg="lng:${s.id}" value="${s.lng??""}" style="width:110px"></td><td><input type="checkbox" data-cfg="active:${s.id}" ${s.active?"checked":""} style="width:22px;height:22px;min-height:0"></td></tr>`).join("")}</tbody></table></div>
     <button class="btn sm outline" data-act="addstore" style="align-self:flex-start">+ Loja</button></section>
   <section class="card"><h2>Checklist da visita</h2><p class="muted">Cada ponto não conforme cria esta ação, com este prazo e este responsável.</p><div class="scroll"><table><thead><tr><th>Ponto</th><th>Ação criada</th><th>Prazo (d)</th><th>Responsável</th><th>Ativo</th></tr></thead><tbody>
     ${S.items.map(i=>`<tr><td><input data-cfg="label:${i.id}" value="${esc(i.label)}" style="min-width:160px"></td><td><textarea data-cfg="action:${i.id}" rows="2" style="min-width:240px;min-height:0">${esc(i.action)}</textarea></td><td><input type="number" min="0" data-cfg="days:${i.id}" value="${i.days}" style="width:80px"></td><td>${sel(`owner:${i.id}`,i.owner,[["Responsável loja","Responsável loja"],["Supervisor","Supervisor"],["Sede","Sede"]])}</td><td><input type="checkbox" data-cfg="iactive:${i.id}" ${i.active?"checked":""} style="width:22px;height:22px;min-height:0"></td></tr>`).join("")}</tbody></table></div>
     <button class="btn sm outline" data-act="additem" style="align-self:flex-start">+ Ponto</button></section>
-  <section class="card"><h2>Parâmetros</h2><div class="kpis">${[["cadA","Cadência A (dias)"],["cadB","Cadência B (dias)"],["cadC","Cadência C (dias)"],["dueSoon","«Esta semana» = próximos (dias)"],["maxNoVisit","Alerta: loja sem visita há mais de (dias)"],["dormant","Stock dormente: sem venda há (dias)"],["noShip","Alerta sem envio há (dias)"]].map(([k,l])=>`<label class="field"><span>${l}</span><input type="number" min="1" data-cfg="set:${k}" value="${st[k]}"></label>`).join("")}</div><p class="muted">As alterações aplicam-se imediatamente a todos os cálculos (estados, alertas, agenda).</p></section>`;
+  <section class="card"><h2>Parâmetros</h2><div class="kpis">${[["cadA","Cadência A (dias)"],["cadB","Cadência B (dias)"],["cadC","Cadência C (dias)"],["dueSoon","«Esta semana» = próximos (dias)"],["maxNoVisit","Alerta: loja sem visita há mais de (dias)"],["dormant","Stock dormente: sem venda há (dias)"],["noShip","Alerta sem envio há (dias)"]].map(([k,l])=>`<label class="field"><span>${l}</span><input type="number" min="1" data-cfg="set:${k}" value="${st[k]}"></label>`).join("")}${REMOTE?`<label class="field"><span>E-mail da Sede (cc das agendas)</span><input type="email" data-cfg="sede:1" value="${esc(S.sedeEmail||"")}" placeholder="sede@…"></label>`:""}</div><p class="muted">As alterações aplicam-se imediatamente a todos os cálculos (estados, alertas, agenda).</p></section>`;
 }
 function Import(){
   return `<section class="card"><h2>Import manual dos CSV Sage X3</h2><p class="muted">Mesmo formato que o import noturno. Separador ; ou , · datas AAAA-MM-DD ou DD/MM/AAAA.</p>
@@ -849,12 +955,13 @@ function Import(){
 }
 function Mail(){
   return `<section class="card"><h2>Mensagens geradas</h2><p class="muted">Textos que a app preparou: relatórios de visita e agendas de 2ª feira. Aqui envia-os por WhatsApp ou e-mail com um toque; na app real partem sozinhos (relatório a cada visita, agenda à 2ª feira, lembrete diário das ações em atraso).</p>
-    ${S.outbox.length?S.outbox.slice(0,20).map(m=>{const v=m.visit?S.visits.find(x=>x.id===m.visit):null; return `<div class="mail"><div class="row"><b>${esc(m.subject)}</b><span class="muted">${fmtDT(m.at)}</span></div><div class="muted">Para: ${esc(m.to)}${v?` · ${v.sent?"✓ enviado":"por enviar"}`:""}</div>${v?shareRow(v):shareGeneric(m.subject,m.body,m.toEmail||"")}<pre>${esc(m.body.replace(/\*/g,""))}</pre></div>`;}).join(""):`<p class="muted">Ainda nada gerado. Registe uma visita ou gere a agenda de 2ª feira no Painel.</p>`}</section>`;
+    ${S.outbox.length?S.outbox.slice(0,20).map(m=>{const v=m.visit?S.visits.find(x=>x.id===m.visit):null; const st=REMOTE?({pending:"⏳ e-mail a enviar…",sent:`✉️ e-mail enviado ${fmtDT(m.sentAt)}`,error:`⚠️ e-mail falhou: ${m.error||""}`,skipped:"— sem e-mail de destino"})[m.status]||"":""; return `<div class="mail"><div class="row"><b>${esc(m.subject)}</b><span class="muted">${fmtDT(m.at)}</span></div><div class="muted">Para: ${esc(m.to)}${st?` · <span class="${m.status==="error"?"late-t":m.status==="sent"?"ok-t":""}">${esc(st)}</span>`:""}${v?` · WhatsApp: ${v.sent?"✓ enviado":"por enviar"}`:""}</div>${v?shareRow(v):shareGeneric(m.subject,m.body,m.toEmail||"")}<pre>${esc(m.body.replace(/\*/g,""))}</pre></div>`;}).join(""):`<p class="muted">Ainda nada gerado. Registe uma visita ou gere a agenda de 2ª feira no Painel.</p>`}</section>`;
 }
 function agenda(uid){
   const u=S.users.find(x=>x.id===uid); const m=S.stores.filter(s=>s.active&&s.sup===uid).map(summary).filter(s=>s.status!=="ok"||s.noVisit).sort((a,b)=>a.daysUntil-b.daysUntil);
   const body=`Bom dia ${u.name},\n\nLojas a visitar nos próximos ${S.settings.dueSoon} dias (🔴 = em atraso):\n\n${m.length?m.map(s=>`${s.status==="soon"?"🟠":"🔴"} ${s.name} (${s.city}) — ${s.statusText}${s.open?` · ${s.open} ação(ões) aberta(s)`:""}${s.alerts.length?` · ${s.alerts.join(" · ")}`:""}`).join("\n"):"Nenhuma loja a visitar esta semana. 👍"}\n\nBoa semana!`;
-  S.outbox.unshift({at:new Date().toISOString(),to:`${u.name} · ${u.email}${u.phone?` · ${u.phone}`:""}`,toEmail:u.email,subject:`Lojas a visitar esta semana (${m.length})`,body});
+  const mail={id:newId(S.outbox),at:new Date().toISOString(),to:`${u.name} · ${u.email}${u.phone?` · ${u.phone}`:""}`,toEmail:u.email,ccEmail:S.sedeEmail||"",toUser:u.id,subject:`Lojas a visitar esta semana (${m.length})`,body,status:"pending"};
+  S.outbox.unshift(mail); dbPut("outbox",mail);
   logE("Gerou agenda de 2ª feira","agenda",`${u.name} · ${m.length} loja(s)`);
   UI.sedeTab="mail"; toast("Agenda gerada · envie por WhatsApp ou e-mail"); render();
 }
@@ -873,7 +980,8 @@ function importCSV(kind,text){
   else if(kind==="shipments"){ out=rows.map(r=>({no:pick(r,"NumExpedicao","Expedicao","Shipment"),site:pick(r,"SiteDestino","Site").toUpperCase(),date:toDate(pick(r,"DataEnvio","SentDate")),lines:Math.round(toNum(pick(r,"NbLinhas","Lines"))),sent:Math.round(toNum(pick(r,"QtdEnviada","QtySent"))),recv:Math.round(toNum(pick(r,"QtdRecebida","QtyReceived"))),status:toStatus(pick(r,"Estado","Statut","Status"))})).filter(x=>x.no&&x.site); if(!out.length) return toast("Nenhuma linha reconhecida: verifique os cabeçalhos."); S.shipments=out; }
   else { out=rows.map(r=>({site:pick(r,"Site").toUpperCase(),month:(toDate(pick(r,"Mes","Mois","Month"))||"").slice(0,7),sales:toNum(pick(r,"Vendas","Sales")),target:toNum(pick(r,"Objetivo","Target")),traffic:Math.round(toNum(pick(r,"Trafego","Traffic"))),tickets:Math.round(toNum(pick(r,"Tickets")))})).filter(x=>x.site&&x.month); if(!out.length) return toast("Nenhuma linha reconhecida: verifique os cabeçalhos."); out.forEach(k=>{const i=S.kpis.findIndex(x=>x.site===k.site&&x.month===k.month); if(i>=0)S.kpis[i]=k; else S.kpis.push(k);}); }
   out.forEach(x=>{ if(!known.has(x.site)) unknown.add(x.site); });
-  S.imports.unshift({kind:kind==="stock"?"Stock":kind==="shipments"?"Expedições":"KPI",at:new Date().toISOString(),rows:out.length,unknown:[...unknown].sort()});
+  S.imports.unshift({id:newId(S.imports),kind:kind==="stock"?"Stock":kind==="shipments"?"Expedições":"KPI",at:new Date().toISOString(),rows:out.length,unknown:[...unknown].sort()});
+  if(REMOTE){ (async()=>{ if(kind==="stock") await dbReplace("stock",out,"site"); else if(kind==="shipments") await dbReplace("shipments",out,"no"); else await dbUpsertMany("kpis",out); await dbPut("imports",S.imports[0]); })(); }
   logE("Importou CSV","import",`${S.imports[0].kind} · ${out.length} linha(s)${unknown.size?` · sites sem loja: ${[...unknown].join(", ")}`:""}`);
   toast(`${out.length} linha(s) importada(s)${unknown.size?` · sites sem loja: ${[...unknown].join(", ")}`:""}`); UI.sedeTab="painel"; render();
 }
@@ -882,7 +990,7 @@ function importCSV(kind,text){
 let logQT;
 function bind(){
   root.onclick = e => {
-    const b = e.target.closest("[data-login],[data-act],[data-go],[data-store],[data-filter],[data-nova],[data-done],[data-prog],[data-reopen],[data-toggle],[data-star],[data-rmphoto],[data-acttab],[data-sedetab],[data-agenda],[data-view],[data-mapstore],[data-agview],[data-agshift],[data-agtoday],[data-agday],[data-newplan],[data-planstore],[data-editplan],[data-startvisit],[data-q],[data-train],[data-sendvia],[data-copy],[data-share],[data-logtype]");
+    const b = e.target.closest("[data-login],[data-act],[data-go],[data-store],[data-filter],[data-nova],[data-done],[data-prog],[data-reopen],[data-toggle],[data-star],[data-rmphoto],[data-acttab],[data-sedetab],[data-agenda],[data-view],[data-mapstore],[data-agview],[data-agshift],[data-agtoday],[data-agday],[data-newplan],[data-planstore],[data-editplan],[data-startvisit],[data-q],[data-train],[data-sendvia],[data-copy],[data-share],[data-logtype],[data-authmode]");
     if(!b) return;
     const d=b.dataset;
     if(d.sendvia){ markSent(+d.visit,d.sendvia); setTimeout(render,300); return; } // deixa o link abrir o WhatsApp / e-mail
@@ -907,34 +1015,36 @@ function bind(){
     if(d.train){ const arr=UI.draft.extra.training; const i=arr.indexOf(d.train); if(d.train==="Nenhuma"){ UI.draft.extra.training = i>=0? [] : ["Nenhuma"]; } else { const k=arr.indexOf("Nenhuma"); if(k>=0) arr.splice(k,1); i>=0?arr.splice(i,1):arr.push(d.train); } render(); return; }
     if(d.act==="compnone"){ UI.draft.extra.competition="Nada a assinalar"; render(); return; }
     if(d.act==="more"){ UI.more=!UI.more; render(); return; }
-    if(d.act==="saveplan"){ const p=UI.plan; if(!p.store) return; const st=S.stores.find(x=>x.id===+p.store); if(UI.planId){ const x=S.planned.find(y=>y.id===UI.planId); Object.assign(x,{store:+p.store,date:p.date,time:p.time,reason:p.reason,notes:p.notes}); } else { S.planned.push({id:nextId(S.planned),store:+p.store,sup:st.sup||UI.user,date:p.date,time:p.time,reason:p.reason,notes:p.notes,visitId:null}); } logE(UI.planId?"Editou visita planeada":"Planeou visita","agenda",`${fmtDate(p.date)} ${p.time} · ${p.reason}`,st.id); UI.agDate=p.date; UI.agView="hoje"; toast("Visita guardada na agenda"); go("agenda"); return; }
-    if(d.act==="delplan"){ const x=S.planned.find(y=>y.id===UI.planId); if(x) logE("Apagou visita planeada","agenda",`${fmtDate(x.date)} ${x.time} · ${x.reason}`,x.store); S.planned=S.planned.filter(x=>x.id!==UI.planId); toast("Visita planeada apagada"); go("agenda"); return; }
-    if(d.act==="saveroute"){ const date=$("#routeDate")?.value||TODAY; const list=myStoresFiltered(); const chosen=list.filter(s=>UI.routeSel.includes(s.id)&&s.lat!=null); if(!chosen.length) return; let start=chosen[0]; if(UI.routeStart==="me"&&UI.myPos) start=UI.myPos; else if(UI.routeStart.startsWith("s")) start=list.find(s=>"s"+s.id===UI.routeStart)||chosen[0]; let order=planRoute(start,chosen.filter(s=>s!==start)); if(chosen.includes(start)) order=[start,...order.filter(s=>s!==start)]; let min=9*60+30; order.forEach(s=>{ if(!S.planned.some(p=>p.store===s.id&&p.date===date&&!p.visitId)) S.planned.push({id:nextId(S.planned),store:s.id,sup:s.sup,date,time:`${pad(Math.floor(min/60))}:${pad(min%60)}`,reason:s.noVisit||s.status!=="ok"?"Visita de cadência":"Acompanhamento de ações",notes:s.alerts.slice(0,2).join(" · "),visitId:null}); min+=45+Math.round((order.indexOf(s)<order.length-1?km(s,order[order.indexOf(s)+1]):0)/70*60); }); logE("Guardou rota na agenda","agenda",`${fmtDate(date)} · ${order.map(s=>s.name.replace("P&C ","")).join(" → ")}`); UI.agDate=date; UI.agView="hoje"; toast(`${order.length} visita(s) guardada(s) na agenda de ${fmtDay(date)}`); go("agenda"); return; }
+    if(d.act==="saveplan"){ const p=UI.plan; if(!p.store) return; const st=S.stores.find(x=>x.id===+p.store); let row; if(UI.planId){ row=S.planned.find(y=>y.id===UI.planId); Object.assign(row,{store:+p.store,date:p.date,time:p.time,reason:p.reason,notes:p.notes}); } else { row={id:newId(S.planned),store:+p.store,sup:st.sup||UI.user,date:p.date,time:p.time,reason:p.reason,notes:p.notes,visitId:null}; S.planned.push(row); } dbPut("planned",row); logE(UI.planId?"Editou visita planeada":"Planeou visita","agenda",`${fmtDate(p.date)} ${p.time} · ${p.reason}`,st.id); UI.agDate=p.date; UI.agView="hoje"; toast("Visita guardada na agenda"); go("agenda"); return; }
+    if(d.act==="delplan"){ const x=S.planned.find(y=>y.id===UI.planId); if(x){ logE("Apagou visita planeada","agenda",`${fmtDate(x.date)} ${x.time} · ${x.reason}`,x.store); dbDel("planned",x.id); } S.planned=S.planned.filter(x=>x.id!==UI.planId); toast("Visita planeada apagada"); go("agenda"); return; }
+    if(d.act==="saveroute"){ const date=$("#routeDate")?.value||TODAY; const list=myStoresFiltered(); const chosen=list.filter(s=>UI.routeSel.includes(s.id)&&s.lat!=null); if(!chosen.length) return; let start=chosen[0]; if(UI.routeStart==="me"&&UI.myPos) start=UI.myPos; else if(UI.routeStart.startsWith("s")) start=list.find(s=>"s"+s.id===UI.routeStart)||chosen[0]; let order=planRoute(start,chosen.filter(s=>s!==start)); if(chosen.includes(start)) order=[start,...order.filter(s=>s!==start)]; let min=9*60+30; order.forEach(s=>{ if(!S.planned.some(p=>p.store===s.id&&p.date===date&&!p.visitId)){ const row={id:newId(S.planned),store:s.id,sup:s.sup,date,time:`${pad(Math.floor(min/60))}:${pad(min%60)}`,reason:s.noVisit||s.status!=="ok"?"Visita de cadência":"Acompanhamento de ações",notes:s.alerts.slice(0,2).join(" · "),visitId:null}; S.planned.push(row); dbPut("planned",row); } min+=45+Math.round((order.indexOf(s)<order.length-1?km(s,order[order.indexOf(s)+1]):0)/70*60); }); logE("Guardou rota na agenda","agenda",`${fmtDate(date)} · ${order.map(s=>s.name.replace("P&C ","")).join(" → ")}`); UI.agDate=date; UI.agView="hoje"; toast(`${order.length} visita(s) guardada(s) na agenda de ${fmtDay(date)}`); go("agenda"); return; }
     if(d.mapstore){ UI.mapSel = UI.mapSel===+d.mapstore? null : +d.mapstore; render(); return; }
     if(d.act==="mypos"){ if(!navigator.geolocation){toast("GPS indisponível");return;} navigator.geolocation.getCurrentPosition(p=>{UI.myPos={lat:p.coords.latitude,lng:p.coords.longitude,name:"A minha posição"};render();},()=>toast("Posição recusada ou indisponível"),{enableHighAccuracy:true,timeout:10000}); return; }
-    if(d.act==="applybest"){ const pend=myPlanned().filter(p=>p.date===UI.agDate&&!p.visitId).sort((a,b)=>a.time.localeCompare(b.time)); const st=pend.map(p=>summary(S.stores.find(x=>x.id===p.store))).filter(s=>s.lat!=null); if(st.length<2) return; const first=st[0]; const best=[first,...planRoute(first,st.slice(1))]; let min=(+pend[0].time.slice(0,2))*60+(+pend[0].time.slice(3,5)); const rows=schedule(null,best,min); rows.forEach(r=>{ const p=pend.find(x=>x.store===r.s.id); if(p) p.time=hm(r.arrive); }); logE("Reordenou o dia pela rota mais curta","agenda",`${fmtDate(UI.agDate)} · ${best.map(s=>s.name.replace("P&C ","")).join(" → ")}`); toast("Ordem mais curta aplicada · horas recalculadas"); render(); return; }
-    if(d.login){ const u=S.users.find(x=>x.id===+d.login); if(!u) return; if(u.pin){ UI.loginSel=u.id; UI.formErr=""; render(); } else doLogin(u.id); return; }
+    if(d.act==="applybest"){ const pend=myPlanned().filter(p=>p.date===UI.agDate&&!p.visitId).sort((a,b)=>a.time.localeCompare(b.time)); const st=pend.map(p=>summary(S.stores.find(x=>x.id===p.store))).filter(s=>s.lat!=null); if(st.length<2) return; const first=st[0]; const best=[first,...planRoute(first,st.slice(1))]; let min=(+pend[0].time.slice(0,2))*60+(+pend[0].time.slice(3,5)); const rows=schedule(null,best,min); rows.forEach(r=>{ const p=pend.find(x=>x.store===r.s.id); if(p&&p.time!==hm(r.arrive)){ p.time=hm(r.arrive); dbPut("planned",p); } }); logE("Reordenou o dia pela rota mais curta","agenda",`${fmtDate(UI.agDate)} · ${best.map(s=>s.name.replace("P&C ","")).join(" → ")}`); toast("Ordem mais curta aplicada · horas recalculadas"); render(); return; }
+    if(d.login){ const u=S.users.find(x=>String(x.id)===d.login); if(!u) return; if(u.pin){ UI.loginSel=u.id; UI.formErr=""; render(); } else doLogin(u.id); return; }
+    if(d.authmode){ UI.auth={...(UI.auth||{email:"",password:"",name:"",phone:""}),mode:d.authmode,err:"",msg:""}; render(); return; }
     if(d.go){ go(d.go); return; }
     if(d.store){ go("loja",+d.store); return; }
     if(d.nova){ UI.storeId=+d.nova; UI.draft=null; go("nova"); return; }
     if(d.filter){ UI.filter=d.filter; render(); return; }
     if(d.acttab){ UI.actTab=d.acttab; render(); return; }
     if(d.sedetab){ UI.sedeTab=d.sedetab; render(); return; }
-    if(d.agenda){ agenda(+d.agenda); return; }
-    if(d.done||d.prog||d.reopen){ const a=S.actions.find(x=>x.id===+(d.done||d.prog||d.reopen)); if(a){ a.status=d.done?"done":d.prog?"in_progress":"open"; logE(d.done?"Fechou ação":d.prog?"Pôs ação em curso":"Reabriu ação","acao",a.title,a.store); toast(d.done?"Ação fechada":d.prog?"Ação em curso":"Ação reaberta"); render(); } return; }
+    if(d.agenda){ agenda(uid(d.agenda)); return; }
+    if(d.done||d.prog||d.reopen){ const a=S.actions.find(x=>x.id===+(d.done||d.prog||d.reopen)); if(a){ a.status=d.done?"done":d.prog?"in_progress":"open"; dbPut("actions",a); logE(d.done?"Fechou ação":d.prog?"Pôs ação em curso":"Reabriu ação","acao",a.title,a.store); toast(d.done?"Ação fechada":d.prog?"Ação em curso":"Ação reaberta"); render(); } return; }
     if(d.toggle){ const id=+d.toggle, i=UI.draft.bad.indexOf(id); i>=0?UI.draft.bad.splice(i,1):UI.draft.bad.push(id); render(); return; }
     if(d.star){ UI.draft.rating = UI.draft.rating===+d.star? null : +d.star; render(); return; }
     if(d.rmphoto){ UI.draft.photos.splice(+d.rmphoto,1); render(); return; }
-    if(d.act==="logout"){ logE("Saiu da app","conta"); UI.user=null; UI.draft=null; UI.signup=null; UI.loginSel=null; render(); return; }
-    if(d.act==="reset"){ S=SEED(); UI.user=null; UI.signup=null; UI.loginSel=null; save(); toast("Dados de exemplo repostos"); render(); return; }
+    if(d.act==="logout"){ if(user()?.active) logE("Saiu da app","conta"); if(REMOTE){ sb.auth.signOut(); UI.auth=null; return; } UI.user=null; UI.draft=null; UI.signup=null; UI.loginSel=null; render(); return; }
+    if(d.act==="reset"){ if(REMOTE) return; S=SEED(); UI.user=null; UI.signup=null; UI.loginSel=null; save(); toast("Dados de exemplo repostos"); render(); return; }
     if(d.act==="addphoto"){ $("#f-photo").click(); return; }
     if(d.act==="geo"){ UI.draft.geoState="asking"; render(); if(!navigator.geolocation){UI.draft.geoState="denied";render();return;} navigator.geolocation.getCurrentPosition(p=>{UI.draft.geo={lat:+p.coords.latitude.toFixed(5),lng:+p.coords.longitude.toFixed(5)};UI.draft.geoState="idle";render();},()=>{UI.draft.geoState="denied";render();},{enableHighAccuracy:true,timeout:10000}); return; }
     if(d.act==="submit"){ submitVisit(); return; }
-    if(d.act==="addstore"){ const id=nextId(S.stores); S.stores.push({id,name:`Nova loja ${id}`,code:`L${String(100+id)}`,city:"",manager:"",email:"",phone:"",cad:"B",tempCad:null,tempUntil:null,sup:(S.users.find(u=>u.role==="sup"&&u.active)||S.users[0]).id,active:true,lat:null,lng:null,priority:"Normal",notes:""}); logE("Criou loja","loja",`Nova loja ${id}`,id); render(); toast("Loja criada · edite o nome e o código Sage na app real"); return; }
-    if(d.act==="additem"){ const id=nextId(S.items); S.items.push({id,label:"Novo ponto",action:"",days:7,owner:"Responsável loja",active:true}); logE("Criou ponto da checklist","config",`Novo ponto ${id}`); render(); return; }
+    if(d.act==="addstore"){ const id=newId(S.stores); const n=S.stores.length+1; const row={id,name:`Nova loja ${n}`,code:`L${String(100+n)}`,city:"",address:"",hours:"",team:null,manager:"",email:"",phone:"",cad:"B",tempCad:null,tempUntil:null,sup:(S.users.find(u=>u.role==="sup"&&u.active)||S.users[0])?.id??null,active:true,lat:null,lng:null,priority:"Normal",notes:""}; S.stores.push(row); (async()=>{ await dbPut("stores",row); logE("Criou loja","loja",row.name,id); })(); render(); toast("Loja criada · edite o nome e o código Sage"); return; }
+    if(d.act==="additem"){ const id=newId(S.items); const row={id,label:"Novo ponto",action:"",days:7,owner:"Responsável loja",active:true}; S.items.push(row); dbPut("items",row); logE("Criou ponto da checklist","config","Novo ponto"); render(); return; }
   };
   root.onsubmit = e => {
     e.preventDefault(); const f=e.target.dataset.form;
+    if(f&&f.startsWith("auth-")){ authSubmit(f); return; }
     if(f==="pin"){ const u=S.users.find(x=>x.id===UI.loginSel); const val=$("#pin")?.value||""; if(u&&val===u.pin) doLogin(u.id); else { UI.formErr="PIN incorreto."; render(); setTimeout(()=>$("#pin")?.focus(),0); } return; }
     if(f==="signup"){ createAccount(!!UI.user&&isAdmin()); return; }
   };
@@ -943,7 +1053,7 @@ function bind(){
     if(t.id==="supFilter"){ UI.supFilter=t.value; render(); return; }
     if(t.id==="logUser"){ UI.logUser=t.value; render(); return; }
     if(t.id==="su-role"){ UI.signup.role=t.value; return; }
-    if(t.dataset.ucfg){ const [k,id]=t.dataset.ucfg.split(":"); const u=S.users.find(x=>x.id===+id); if(!u) return; const v=t.type==="checkbox"?t.checked:t.value.trim(); const me=u.id===UI.user; const admins=()=>S.users.filter(x=>x.active&&x.role==="admin").length;
+    if(t.dataset.ucfg){ const [k,id]=t.dataset.ucfg.split(":"); const u=S.users.find(x=>String(x.id)===id); if(!u) return; const v=t.type==="checkbox"?t.checked:t.value.trim(); const me=u.id===UI.user; const admins=()=>S.users.filter(x=>x.active&&x.role==="admin").length;
       if(k==="role"&&me){ toast("Não pode alterar o seu próprio perfil."); return render(); }
       if(k==="active"&&me){ toast("Não pode desativar a sua própria conta."); return render(); }
       if((k==="role"&&v!=="admin"&&u.role==="admin"&&admins()<=1)||(k==="active"&&!v&&u.role==="admin"&&admins()<=1)){ toast("Tem de existir pelo menos uma conta Sede ativa."); return render(); }
@@ -951,7 +1061,7 @@ function bind(){
       if(k==="email"){ if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)||S.users.some(x=>x.id!==u.id&&x.email.toLowerCase()===v.toLowerCase())){ toast("E-mail inválido ou já usado."); return render(); } }
       if(k==="name"&&!v){ toast("O nome é obrigatório."); return render(); }
       const old=u[k]; u[k]=v; const lab={name:"nome",email:"e-mail",phone:"telemóvel",role:"perfil",active:"ativa"}[k]||k; const show=x=>k==="role"?(x==="admin"?"Sede":"Supervisor"):k==="active"?(x?"sim":"não"):(x||"—");
-      logE("Alterou conta","conta",`${u.name} · ${lab}: ${show(old)} → ${show(v)}`); save(); toast("Guardado"); if(k==="role"||k==="active") render(); return; }
+      logE("Alterou conta","conta",`${u.name} · ${lab}: ${show(old)} → ${show(v)}`); dbPut("profiles",{id:u.id,name:u.name,email:u.email,phone:u.phone,role:u.role,active:u.active}); save(); toast("Guardado"); if(k==="role"||k==="active") render(); return; }
     if(t.id==="f-store"){ UI.draft.store=t.value; UI.storeId=+t.value||null; render(); return; }
     if(t.id==="f-at"){ UI.draft.at=t.value; return; }
     if(t.id==="f-reason"){ UI.draft.reason=t.value; return; }
@@ -961,21 +1071,23 @@ function bind(){
     if(t.id==="p-date"){ UI.plan.date=t.value; return; }
     if(t.id==="p-time"){ UI.plan.time=t.value; return; }
     if(t.id==="p-reason"){ UI.plan.reason=t.value; return; }
-    if(t.dataset.storenotes){ const s=S.stores.find(x=>x.id===+t.dataset.storenotes); if(s){ s.notes=t.value; logE("Alterou notas da loja","loja",s.notes.slice(0,120),s.id); save(); toast("Notas guardadas"); } return; }
+    if(t.dataset.storenotes){ const s=S.stores.find(x=>x.id===+t.dataset.storenotes); if(s){ s.notes=t.value; dbPut("stores",s); logE("Alterou notas da loja","loja",s.notes.slice(0,120),s.id); save(); toast("Notas guardadas"); } return; }
     if(t.id==="routeStart"){ UI.routeStart=t.value; render(); return; }
     if(t.dataset.route){ const id=+t.dataset.route; const i=UI.routeSel.indexOf(id); i>=0?UI.routeSel.splice(i,1):UI.routeSel.push(id); render(); return; }
     if(t.id==="f-photo"){ Array.from(t.files||[]).forEach(f=>{ if(!f.type.startsWith("image/")) return; const img=new Image(); const url=URL.createObjectURL(f); img.onload=()=>{ const c=document.createElement("canvas"); const k=Math.min(1,900/Math.max(img.width,img.height)); c.width=img.width*k; c.height=img.height*k; c.getContext("2d").drawImage(img,0,0,c.width,c.height); UI.draft.photos.push(c.toDataURL("image/jpeg",.8)); URL.revokeObjectURL(url); render(); }; img.src=url; }); t.value=""; return; }
     if(t.dataset.import){ const f=t.files?.[0]; if(!f) return; const r=new FileReader(); r.onload=()=>importCSV(t.dataset.import,String(r.result)); r.readAsText(f,"utf-8"); t.value=""; return; }
     if(t.dataset.cfg){ const [k,id]=t.dataset.cfg.split(":"); const v=t.type==="checkbox"?t.checked:t.value; let what="", old="", neu=v, store=null; const yn=x=>x?"sim":"não";
-      if(k==="set"){ old=S.settings[id]; S.settings[id]=Math.max(1,+v||1); neu=S.settings[id]; what=`Parâmetro ${id}`; }
-      else if(["sup","cad","tempCad","tempUntil","active","lat","lng","phone"].includes(k)){ const s=S.stores.find(x=>x.id===+id); if(s){ store=s.id; const lab={sup:"supervisor",cad:"cadência",tempCad:"cadência temporária",tempUntil:"temporária até",active:"ativa",lat:"latitude",lng:"longitude",phone:"telemóvel"}[k];
-          if(k==="sup"){ old=userName(s.sup); s.sup=+v; neu=userName(s.sup); } else if(k==="tempCad"){ old=s.tempCad; s.tempCad=v||null; } else if(k==="tempUntil"){ old=s.tempUntil; s.tempUntil=v||null; } else if(k==="lat"||k==="lng"){ old=s[k]; s[k]=v===""?null:+v; } else if(k==="active"){ old=yn(s.active); s.active=v; neu=yn(v); } else { old=s[k]; s[k]=v; }
-          what=`${s.name} · ${lab}`; } }
-      else { const i=S.items.find(x=>x.id===+id); if(i){ const lab={label:"ponto",action:"ação criada",days:"prazo (dias)",owner:"responsável",iactive:"ativo"}[k]||k; if(k==="days"){ old=i.days; i.days=Math.max(0,+v||0); neu=i.days; } else if(k==="iactive"){ old=yn(i.active); i.active=v; neu=yn(v); } else { old=i[k]; i[k]=v; } what=`Checklist «${i.label}» · ${lab}`; } }
+      if(k==="set"){ old=S.settings[id]; S.settings[id]=Math.max(1,+v||1); neu=S.settings[id]; what=`Parâmetro ${id}`; dbPut("settings",{id:1,...S.settings,reasons:S.reasons,trainings:S.trainings,sedeEmail:S.sedeEmail||""}); }
+      else if(k==="sede"){ old=S.sedeEmail||""; S.sedeEmail=v.trim(); neu=S.sedeEmail; what="E-mail da Sede (cc)"; dbPut("settings",{id:1,...S.settings,reasons:S.reasons,trainings:S.trainings,sedeEmail:S.sedeEmail}); }
+      else if(["sup","cad","tempCad","tempUntil","active","lat","lng","phone","name","code","email","manager","city"].includes(k)){ const s=S.stores.find(x=>x.id===+id); if(s){ store=s.id; const lab={sup:"supervisor",cad:"cadência",tempCad:"cadência temporária",tempUntil:"temporária até",active:"ativa",lat:"latitude",lng:"longitude",phone:"telemóvel",name:"nome",code:"código Sage",email:"e-mail",manager:"responsável",city:"cidade"}[k];
+          if(k==="sup"){ old=userName(s.sup); s.sup=v?uid(v):null; neu=userName(s.sup); } else if(k==="tempCad"){ old=s.tempCad; s.tempCad=v||null; } else if(k==="tempUntil"){ old=s.tempUntil; s.tempUntil=v||null; } else if(k==="lat"||k==="lng"){ old=s[k]; s[k]=v===""?null:+v; } else if(k==="active"){ old=yn(s.active); s.active=v; neu=yn(v); } else { old=s[k]; s[k]=v; }
+          what=`${s.name} · ${lab}`; dbPut("stores",s); } }
+      else { const i=S.items.find(x=>x.id===+id); if(i){ const lab={label:"ponto",action:"ação criada",days:"prazo (dias)",owner:"responsável",iactive:"ativo"}[k]||k; if(k==="days"){ old=i.days; i.days=Math.max(0,+v||0); neu=i.days; } else if(k==="iactive"){ old=yn(i.active); i.active=v; neu=yn(v); } else { old=i[k]; i[k]=v; } what=`Checklist «${i.label}» · ${lab}`; dbPut("items",i); } }
       if(what) logE("Alterou configuração","config",`${what}: ${old===null||old===""||old===undefined?"—":old} → ${neu===null||neu===""||neu===undefined?"—":neu}`,store);
       save(); toast("Guardado"); return; }
   };
   root.oninput = e => { const t=e.target; if(t.id==="f-comment") UI.draft.comment=t.value; else if(t.id==="f-comp") UI.draft.extra.competition=t.value; else if(t.id==="f-next") UI.draft.extra.nextSteps=t.value; else if(t.id==="p-notes") UI.plan.notes=t.value;
+    else if(t.id&&t.id.startsWith("au-")) UI.auth[t.id.slice(3)]=t.value;
     else if(t.id==="su-name") UI.signup.name=t.value; else if(t.id==="su-email") UI.signup.email=t.value; else if(t.id==="su-phone") UI.signup.phone=t.value; else if(t.id==="su-pin") UI.signup.pin=t.value.replace(/\D/g,"").slice(0,4); else if(t.id==="logQ"){ UI.logQ=t.value; clearTimeout(logQT); logQT=setTimeout(()=>{ render(); const el=$("#logQ"); if(el){ el.focus(); el.setSelectionRange(el.value.length,el.value.length); } },350); } };
 }
 render();
