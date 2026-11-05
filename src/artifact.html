@@ -263,12 +263,16 @@ const SEED = () => ({
 });
 
 // ---------- state ----------
-// Dois modos: «demo» (dados de exemplo só neste browser) e «Supabase» (contas reais, dados partilhados,
-// histórico no servidor, e-mails automáticos). O modo Supabase liga-se quando config.js define
-// window.SUPABASE_CONFIG = {url, anonKey} e a biblioteca supabase-js está carregada (build GitHub Pages).
+// Três modos, escolhidos por config.js (build GitHub Pages):
+//  · «demo»          — sem config.js: dados de exemplo só neste browser;
+//  · «Google Sheets» — window.GAS_CONFIG = {url}: contas reais, dados numa folha Google, e-mails pelo Gmail (gratuito);
+//  · «Supabase»      — window.SUPABASE_CONFIG = {url, anonKey}: idem com Postgres + Realtime.
 const CFG = window.SUPABASE_CONFIG || null;
-const REMOTE = !!(CFG && CFG.url && CFG.anonKey && window.supabase);
-const sb = REMOTE ? window.supabase.createClient(CFG.url, CFG.anonKey) : null;
+const GCFG = window.GAS_CONFIG || null;
+const GAS = !!(GCFG && /^(https:\/\/script\.google\.com\/|http:\/\/(127\.0\.0\.1|localhost)[:\/])/.test(GCFG.url||"")); // localhost = servidor de testes (google-sheets/dev-mock-server.js)
+const SUPA = !GAS && !!(CFG && CFG.url && CFG.anonKey && window.supabase);
+const REMOTE = GAS || SUPA;
+const sb = SUPA ? window.supabase.createClient(CFG.url, CFG.anonKey) : null;
 const KEY="pc-supervisores-proto-v1";
 const EMPTY = () => ({ settings:SEED().settings, reasons:[], trainings:[], sedeEmail:"", users:[], items:[], stores:[], planned:[], visits:[], actions:[], stock:[], shipments:[], kpis:[], outbox:[], imports:[], log:[] });
 let S;
@@ -282,7 +286,10 @@ else {
 let UI = { user:null, screen:"lojas", storeId:null, filter:"all", supFilter:"all", actTab:"open", sedeTab:"painel", draft:null, view:"lista", routeSel:null, routeStart:"first", mapSel:null, myPos:null, agView:"hoje", agDate:TODAY, plan:null, planId:null, more:false, loginSel:null, signup:null, formErr:"", logUser:"all", logType:"all", logQ:"", auth:null, loading:false };
 try{ const u = JSON.parse(sessionStorage.getItem(KEY+"-ui")||"null"); if(u) UI = {...UI, ...u, draft:null}; }catch(e){}
 if(REMOTE){ UI.user=null; UI.loading=true; } // a sessão é confirmada pelo Supabase, não pelo sessionStorage
-const save = () => { try{ if(!REMOTE) localStorage.setItem(KEY, JSON.stringify(S)); sessionStorage.setItem(KEY+"-ui", JSON.stringify({user:UI.user,screen:UI.screen,storeId:UI.storeId,sedeTab:UI.sedeTab})); }catch(e){} };
+let cacheT;
+const save = () => { try{ if(!REMOTE) localStorage.setItem(KEY, JSON.stringify(S)); sessionStorage.setItem(KEY+"-ui", JSON.stringify({user:UI.user,screen:UI.screen,storeId:UI.storeId,sedeTab:UI.sedeTab})); }catch(e){}
+  // Google Sheets: cópia local (no máx. de 2 em 2 s) para a app abrir mesmo sem rede
+  if(GAS&&UI.user&&!cacheT) cacheT=setTimeout(()=>{ cacheT=null; try{ localStorage.setItem(KEY+"-cache", JSON.stringify({me:UI.user,ver:gasVer,S})); }catch(e){} },2000); };
 
 // ---------- camada de dados Supabase ----------
 // As tabelas têm colunas snake_case; a app usa camelCase. Escrita «write-through»: a app altera S e
@@ -298,10 +305,76 @@ const genId = () => Date.now()*1000 + Math.floor(Math.random()*1000); // único 
 const newId = arr => REMOTE ? genId() : nextId(arr);
 const uid = v => REMOTE ? v : +v; // ids de conta: uuid (Supabase) ou número (demo)
 const dbErr = (what,e) => { console.error(what,e); toast(`Erro ao guardar (${what}): ${e.message||e}`); };
-async function dbPut(table,obj){ if(!REMOTE) return; const {error}=await sb.from(table).upsert(toRow(obj)); if(error) dbErr(table,error); }
-async function dbDel(table,id){ if(!REMOTE) return; const {error}=await sb.from(table).delete().eq("id",id); if(error) dbErr(table,error); }
-async function dbReplace(table,rows,keyCol){ if(!REMOTE) return; const d=await sb.from(table).delete().neq(keyCol,"\u0000"); if(d.error) return dbErr(table,d.error); for(let i=0;i<rows.length;i+=500){ const {error}=await sb.from(table).insert(rows.slice(i,i+500).map(toRow)); if(error) return dbErr(table,error); } }
-async function dbUpsertMany(table,rows){ if(!REMOTE) return; for(let i=0;i<rows.length;i+=500){ const {error}=await sb.from(table).upsert(rows.slice(i,i+500).map(toRow)); if(error) return dbErr(table,error); } }
+const plain = o => Object.fromEntries(Object.entries(o).filter(([k])=>!k.startsWith("_")));
+async function dbPut(table,obj){ if(!REMOTE) return; if(GAS) return gasOp({op:"put",table:TABLES[table]||table,row:plain(obj)}); const {error}=await sb.from(table).upsert(toRow(obj)); if(error) dbErr(table,error); }
+async function dbDel(table,id){ if(!REMOTE) return; if(GAS) return gasOp({op:"del",table:TABLES[table]||table,id}); const {error}=await sb.from(table).delete().eq("id",id); if(error) dbErr(table,error); }
+async function dbReplace(table,rows,keyCol){ if(!REMOTE) return; if(GAS) return gasOp({op:"replace",table,rows}); const d=await sb.from(table).delete().neq(keyCol,"\u0000"); if(d.error) return dbErr(table,d.error); for(let i=0;i<rows.length;i+=500){ const {error}=await sb.from(table).insert(rows.slice(i,i+500).map(toRow)); if(error) return dbErr(table,error); } }
+async function dbUpsertMany(table,rows){ if(!REMOTE) return; if(GAS) return gasOp({op:"upsertMany",table,rows}); for(let i=0;i<rows.length;i+=500){ const {error}=await sb.from(table).upsert(rows.slice(i,i+500).map(toRow)); if(error) return dbErr(table,error); } }
+
+// ---------- camada de dados Google Sheets (Apps Script) ----------
+// Um único endereço (…/exec). As alterações entram numa fila (guardada no telemóvel) e seguem em lote:
+// sem rede, a app continua a funcionar e envia tudo quando a ligação voltar.
+let gasToken="", gasQ=[], gasVer="", gasBusy=false, gasT;
+if(GAS){ try{ gasToken=localStorage.getItem(KEY+"-tok")||""; gasQ=JSON.parse(localStorage.getItem(KEY+"-q")||"[]"); }catch(e){} }
+const gasSaveQ = () => { try{ localStorage.setItem(KEY+"-q", JSON.stringify(gasQ)); }catch(e){ /* fotos grandes: a fila fica só em memória */ } };
+const gasSetTok = t => { gasToken=t; try{ t?localStorage.setItem(KEY+"-tok",t):localStorage.removeItem(KEY+"-tok"); }catch(e){} };
+async function gasCall(action,payload={}){
+  const ctl=new AbortController(); const tm=setTimeout(()=>ctl.abort(),60000);
+  try{
+    const r=await fetch(GCFG.url,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action,token:gasToken,...payload}),redirect:"follow",signal:ctl.signal});
+    const j=await r.json(); if(!j.ok){ const e=new Error(j.error||"Erro do servidor"); e.code=j.code||"error"; throw e; } return j;
+  } finally { clearTimeout(tm); }
+}
+const typing = () => { const a=document.activeElement; return !!a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.type!=="checkbox"; };
+const softRender = () => { if(typing()) syncBadge(); else render(); };
+function syncBadge(){ const el=$("#sync"); if(el) el.textContent = UI.offline? `⚠ sem rede · ${gasQ.length} por enviar` : gasQ.length||gasBusy? "⏳ a guardar…" : ""; }
+function gasOp(op){ gasQ.push(op); gasSaveQ(); clearTimeout(gasT); gasT=setTimeout(gasFlush,200); syncBadge(); }
+async function gasFlush(){
+  if(gasBusy||!gasQ.length||!gasToken) return;
+  gasBusy=true; syncBadge(); const ops=gasQ.slice(0,40); let reload=false;
+  try{
+    const j=await gasCall("batch",{ops}); gasQ=gasQ.slice(ops.length); gasSaveQ(); gasVer=j.ver; UI.offline=false;
+    let bad=null;
+    j.results.forEach((res,i)=>{ if(res.error){ bad=bad||res.error; return; } const op=ops[i], arr=S[op.table]; if(res.row&&op.op==="put"&&Array.isArray(arr)){ const x=arr.find(y=>y.id===res.row.id); if(x) Object.assign(x,res.row); } });
+    if(bad){ toast("Recusado pelo servidor: "+bad); reload=true; }
+  }catch(e){
+    if(e.code==="auth"){ gasBusy=false; return gasSignedOut(); }
+    if(e.code==="denied"||e.code==="bad"){ gasQ=gasQ.slice(ops.length); gasSaveQ(); toast(e.message); reload=true; }
+    else UI.offline=true; // rede em baixo: fica na fila
+  }
+  gasBusy=false;
+  if(gasQ.length&&!UI.offline) return gasFlush();
+  if(reload) await gasReload().catch(()=>{});
+  softRender();
+}
+function gasApply(j){
+  const d=j.data||{}, st=d.settings||{};
+  S={...EMPTY(), ...d, settings: st.cadA!=null ? {cadA:st.cadA,cadB:st.cadB,cadC:st.cadC,dormant:st.dormant,noShip:st.noShip,dueSoon:st.dueSoon,maxNoVisit:st.maxNoVisit} : SEED().settings, reasons:st.reasons||[], trainings:st.trainings||[], sedeEmail:st.sedeEmail||""};
+  gasVer=j.ver||""; UI.user=j.me.id; UI.offline=false;
+}
+async function gasReload(){ if(gasQ.length||gasBusy) return; gasApply(await gasCall("load")); }
+async function gasPoll(){ // de 45 em 45 s: pergunta só o nº de versão; recarrega se alguém mudou alguma coisa
+  if(!gasToken||!UI.user||document.hidden) return;
+  if(gasQ.length){ if(!gasBusy){ UI.offline=false; gasFlush(); } return; }
+  try{ const j=await gasCall("ver"); if(UI.offline){ UI.offline=false; syncBadge(); } if(j.ver!==gasVer){ await gasReload(); softRender(); } }
+  catch(e){ if(e.code==="auth") gasSignedOut(); }
+}
+function gasSignedOut(){ gasSetTok(""); try{ localStorage.removeItem(KEY+"-cache"); }catch(e){} S=EMPTY(); UI.user=null; UI.draft=null; UI.loading=false; UI.offline=false; render(); }
+async function startGas(fresh){
+  UI.loading=true; render();
+  try{ gasApply(await gasCall("load")); }
+  catch(e){
+    if(e.code==="auth"){ return gasSignedOut(); }
+    let c=null; try{ c=JSON.parse(localStorage.getItem(KEY+"-cache")||"null"); }catch(x){}
+    if(c&&c.S&&c.me){ S=c.S; UI.user=c.me; gasVer=c.ver||""; UI.offline=true; } // sem rede: abre com a última cópia
+    else { UI.loading=false; UI.auth={mode:"login",email:"",password:"",name:"",phone:"",err:"Sem ligação ao servidor. Verifique a internet e tente de novo.",msg:""}; return render(); }
+  }
+  UI.loading=false; UI.auth=null;
+  if(fresh&&user()?.active) logE("Entrou na app","conta");
+  if(!startGas.timer){ startGas.timer=setInterval(gasPoll,45000); document.addEventListener("visibilitychange",()=>{ if(!document.hidden) gasPoll(); }); window.addEventListener("online",gasPoll); }
+  if(UI.screen==="loja"&&!S.stores.some(s=>s.id===UI.storeId)) UI.screen="lojas";
+  render(); gasFlush();
+}
 async function loadTable(t){
   if(t==="settings"){ const {data,error}=await sb.from("settings").select("*").eq("id",1).maybeSingle(); if(error) return dbErr("settings",error); if(data){ const r=fromRow(data); S.settings={cadA:r.cadA,cadB:r.cadB,cadC:r.cadC,dormant:r.dormant,noShip:r.noShip,dueSoon:r.dueSoon,maxNoVisit:r.maxNoVisit}; S.reasons=r.reasons||[]; S.trainings=r.trainings||[]; S.sedeEmail=r.sedeEmail||""; } return; }
   let q=sb.from(t).select("*"); if(ORDER[t]) q=q.order(ORDER[t][0],{ascending:ORDER[t][1]}); if(t==="activity") q=q.limit(2000);
@@ -326,7 +399,7 @@ async function startSession(session){
   if(!UI.screen||UI.screen==="loja"&&!UI.storeId) UI.screen="lojas";
   render();
 }
-if(REMOTE){
+if(SUPA){
   sb.auth.onAuthStateChange((ev,session)=>{
     if(ev==="PASSWORD_RECOVERY"){ UI.auth={mode:"newpass",email:"",password:"",name:"",phone:"",err:"",msg:""}; UI.user=null; render(); return; }
     if(ev==="SIGNED_OUT"){ UI.user=null; UI.draft=null; startSession.logged=false; render(); return; }
@@ -514,10 +587,25 @@ function render(){
   const u=user();
   root.innerHTML = `<div class="app">
     <header class="top"><div class="brand"><span class="mark">P&amp;C</span>Supervisores</div>
-      <div class="who"><span>${esc(u.name)}</span><button class="link" data-act="logout" aria-label="Sair">${I.out}</button></div></header>
+      <div class="who">${GAS?`<span id="sync" class="sync" style="font-size:.75rem"></span><button class="link" data-act="refresh" aria-label="Atualizar" title="Atualizar">↻</button>`:""}<button class="link" data-go="conta" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="A minha conta">${esc(u.name)}</button><button class="link" data-act="logout" aria-label="Sair">${I.out}</button></div></header>
     <nav class="tabs" aria-label="Navegação">${tabs.map(([k,l,ic])=>`<button data-go="${k}" class="${active===k?"on":""}">${ic}<span>${l}</span></button>`).join("")}</nav>
-    <main>${({lojas:Lojas,loja:Loja,nova:Nova,acoes:Acoes,sede:Sede,agenda:Agenda,plan:Plan})[UI.screen]()}</main></div>`;
-  bind(); mountLeaflet();
+    <main>${(({lojas:Lojas,loja:Loja,nova:Nova,acoes:Acoes,sede:Sede,agenda:Agenda,plan:Plan,conta:Conta})[UI.screen]||Lojas)()}</main></div>`;
+  bind(); mountLeaflet(); if(GAS) syncBadge();
+}
+// «A minha conta»: nome, telemóvel (para «Para o meu WhatsApp») e password / PIN.
+function Conta(){
+  const u=user(); const n=S.stores.filter(s=>s.sup===u.id&&s.active).length;
+  return `<button class="link" data-go="lojas" style="align-self:flex-start;padding-left:0">← Lojas</button><h1>A minha conta</h1>
+  <section class="card"><div class="kv"><span>Perfil</span><span>${u.role==="admin"?"Sede / bastidor":"Supervisor · "+n+" loja(s)"}</span><span>E-mail</span><span>${esc(u.email)}</span></div>
+    <div class="grid2"><label class="field"><span>Nome</span><input data-ucfg="name:${u.id}" value="${esc(u.name)}" autocomplete="name"></label>
+    <label class="field"><span>Telemóvel (WhatsApp)</span><input data-ucfg="phone:${u.id}" type="tel" value="${esc(u.phone||"")}" placeholder="+351 9…" autocomplete="tel"></label></div>
+    ${REMOTE?"":`<label class="field" style="max-width:220px"><span>PIN (4 dígitos; 0000 = retirar)</span><input data-ucfg="pin:${u.id}" inputmode="numeric" maxlength="4" value="" placeholder="${u.pin?"•••• alterar":"sem PIN"}" autocomplete="off"></label>`}</section>
+  ${REMOTE?`<form class="card" data-form="pw"><h2>Alterar password</h2>
+    ${GAS?`<label class="field"><span>Password atual (ou a temporária recebida por e-mail)</span><input id="pw-old" type="password" required autocomplete="current-password"></label>`:""}
+    <label class="field"><span>Password nova (mín. 8 caracteres)</span><input id="pw-new" type="password" required minlength="8" autocomplete="new-password"></label>
+    ${UI.formErr?`<p class="late-t" style="margin:0">${esc(UI.formErr)}</p>`:""}
+    <button class="btn" type="submit" style="align-self:flex-start">Guardar password</button></form>`:""}
+  <button class="btn outline" data-act="logout" style="align-self:flex-start">${I.out} Sair</button>`;
 }
 function go(screen, storeId){ UI.screen=screen; if(storeId!==undefined) UI.storeId=storeId; if(screen!=="nova") UI.draft=null; window.scrollTo(0,0); render(); }
 
@@ -549,26 +637,40 @@ function LoginRemote(){
   const msgs=`${a.err?`<p class="late-t" style="margin:0">${esc(a.err)}</p>`:""}${a.msg?`<p class="ok-t" style="margin:0">${esc(a.msg)}</p>`:""}`;
   if(a.mode==="signup") return `<div class="login"><form class="card" data-form="auth-signup">${head}<h2>Criar a minha conta</h2>
     ${f("au-name","Nome *","text",'required autocomplete="name"')}${f("au-email","E-mail *","email",'required autocomplete="email"')}${f("au-phone","Telemóvel (WhatsApp)","tel",'placeholder="+351 9…" autocomplete="tel"')}${f("au-password","Password * (mín. 8 caracteres)","password",'required minlength="8" autocomplete="new-password"')}
-    ${msgs}<button class="btn lg" type="submit">Criar conta</button><button class="btn ghost sm" type="button" data-authmode="login">← Já tenho conta</button></form></div>`;
-  if(a.mode==="reset") return `<div class="login"><form class="card" data-form="auth-reset">${head}<h2>Recuperar password</h2><p class="muted" style="margin:0">Enviamos um e-mail com uma ligação para definir uma password nova.</p>
+    ${msgs}<button class="btn lg" type="submit" ${a.busy?"disabled":""}>${a.busy?"A criar…":"Criar conta"}</button><button class="btn ghost sm" type="button" data-authmode="login">← Já tenho conta</button></form></div>`;
+  if(a.mode==="reset") return `<div class="login"><form class="card" data-form="auth-reset">${head}<h2>Recuperar password</h2><p class="muted" style="margin:0">${GAS?"Enviamos um e-mail com uma password temporária; depois mude-a em «A minha conta».":"Enviamos um e-mail com uma ligação para definir uma password nova."}</p>
     ${f("au-email","E-mail","email",'required autocomplete="email"')}${msgs}<button class="btn lg" type="submit">Enviar e-mail</button><button class="btn ghost sm" type="button" data-authmode="login">← Voltar</button></form></div>`;
   if(a.mode==="newpass") return `<div class="login"><form class="card" data-form="auth-newpass">${head}<h2>Nova password</h2>
     ${f("au-password","Password nova (mín. 8 caracteres)","password",'required minlength="8" autocomplete="new-password"')}${msgs}<button class="btn lg" type="submit">Guardar e entrar</button></form></div>`;
   return `<div class="login"><form class="card" data-form="auth-login">${head}
     ${f("au-email","E-mail","email",'required autocomplete="email"')}${f("au-password","Password","password",'required autocomplete="current-password"')}
-    ${msgs}<button class="btn lg" type="submit">Entrar</button>
+    ${msgs}<button class="btn lg" type="submit" ${a.busy?"disabled":""}>${a.busy?"A entrar…":"Entrar"}</button>
     <div class="inline" style="justify-content:space-between"><button class="btn ghost sm" type="button" data-authmode="signup">+ Criar a minha conta</button><button class="btn ghost sm" type="button" data-authmode="reset">Esqueci-me da password</button></div></form></div>`;
 }
 const authMsg = e => { const m=String(e?.message||e||""); return /Failed to fetch|NetworkError|Load failed/i.test(m)?"Sem ligação ao servidor. Verifique a internet e tente de novo.":/Invalid login/i.test(m)?"E-mail ou password errados.":/already registered|already exists/i.test(m)?"Já existe uma conta com este e-mail.":/Password should be/i.test(m)?"A password tem de ter pelo menos 8 caracteres.":/rate limit/i.test(m)?"Demasiadas tentativas; aguarde um minuto.":/Email not confirmed/i.test(m)?"Confirme primeiro o e-mail que lhe enviámos.":m||"Erro desconhecido."; };
 async function authSubmit(form){
   const a=UI.auth; a.err=""; a.msg="";
+  if(a.busy) return; a.busy=true; render(); // Apps Script demora 1–3 s: evita duplo envio
   try{
-    if(form==="auth-login"){ const {error}=await sb.auth.signInWithPassword({email:a.email.trim(),password:a.password}); if(error) throw error; }
+    if(GAS){
+      if(form==="auth-login"){ const j=await gasCall("login",{email:a.email.trim(),password:a.password}); gasSetTok(j.token); return startGas(true); }
+      if(form==="auth-signup"){ if(!a.name.trim()) throw new Error("O nome é obrigatório."); const j=await gasCall("signup",{name:a.name.trim(),email:a.email.trim(),phone:a.phone.trim(),password:a.password}); gasSetTok(j.token); return startGas(true); }
+      if(form==="auth-reset"){ await gasCall("reset",{email:a.email.trim()}); a.mode="login"; a.password=""; a.msg="Se a conta existir, enviámos uma password temporária para esse e-mail."; }
+    }
+    else if(form==="auth-login"){ const {error}=await sb.auth.signInWithPassword({email:a.email.trim(),password:a.password}); if(error) throw error; }
     else if(form==="auth-signup"){ if(!a.name.trim()) throw new Error("O nome é obrigatório."); const {data,error}=await sb.auth.signUp({email:a.email.trim(),password:a.password,options:{data:{name:a.name.trim(),phone:a.phone.trim()}}}); if(error) throw error; if(!data.session){ a.mode="login"; a.msg="Conta criada. Confirme o e-mail que lhe enviámos e depois entre."; } }
     else if(form==="auth-reset"){ const {error}=await sb.auth.resetPasswordForEmail(a.email.trim(),{redirectTo:location.origin+location.pathname}); if(error) throw error; a.msg="E-mail enviado. Abra a ligação no telemóvel onde quer usar a app."; }
     else if(form==="auth-newpass"){ const {error}=await sb.auth.updateUser({password:a.password}); if(error) throw error; a.password=""; const {data}=await sb.auth.getSession(); if(data.session){ UI.auth=null; startSession(data.session); return; } a.mode="login"; a.msg="Password alterada. Entre com a password nova."; }
   }catch(e){ a.err=authMsg(e); }
-  render();
+  a.busy=false; render();
+}
+async function pwSubmit(){
+  const old=$("#pw-old")?.value||"", neu=$("#pw-new")?.value||""; UI.formErr="";
+  try{
+    if(GAS) await gasCall("password",{old,new:neu});
+    else { const {error}=await sb.auth.updateUser({password:neu}); if(error) throw error; logE("Alterou a password","conta"); }
+    toast("Password alterada"); go("lojas");
+  }catch(e){ UI.formErr=authMsg(e); render(); }
 }
 function Signup(adminMode){
   const d=UI.signup;
@@ -899,8 +1001,8 @@ function Contas(){
     ${REMOTE?`<p class="muted">Cada pessoa cria a sua conta no ecrã de entrada (e-mail + password). As contas novas ficam <b>a aguardar ativação</b>: ative-as aqui, escolha o perfil e atribua as lojas em <button class="link" data-sedetab="config" style="padding:0;color:var(--accent)">Configuração</button>. Só então a pessoa vê alguma coisa.</p>${pending?`<div class="hint">👤 ${pending} conta(s) à espera de ativação.</div>`:""}`
     :`<p class="muted">Cada pessoa entra com a sua conta e só vê as suas lojas; as contas «Sede» veem tudo e este Bastidor. O PIN é opcional (4 dígitos). As lojas atribuem-se em <button class="link" data-sedetab="config" style="padding:0;color:var(--accent)">Configuração</button>.</p>`}
     ${UI.signup?Signup(true):""}
-    <div class="scroll"><table><thead><tr><th>Nome</th><th>E-mail</th><th>Telemóvel (WhatsApp)</th><th>Perfil</th>${REMOTE?"":"<th>PIN</th>"}<th class="num">Lojas</th><th>Último acesso</th><th>Ativa</th></tr></thead><tbody>
-    ${S.users.map(u=>{const me=u.id===UI.user; const n=S.stores.filter(s=>s.sup===u.id&&s.active).length; return `<tr style="${u.active?"":"opacity:.7"}"><td><input data-ucfg="name:${u.id}" value="${esc(u.name)}" style="min-width:150px">${me?`<div class="muted" style="font-size:.75rem">eu</div>`:!u.active?`<div class="late-t" style="font-size:.75rem">aguarda ativação</div>`:""}</td><td><input data-ucfg="email:${u.id}" type="email" value="${esc(u.email)}" style="min-width:200px" ${REMOTE?"readonly":""}></td><td><input data-ucfg="phone:${u.id}" type="tel" value="${esc(u.phone||"")}" placeholder="+351 9…" style="min-width:150px"></td><td>${sel(`role:${u.id}`,u.role,[["sup","Supervisor"],["admin","Sede / bastidor"]])}</td>${REMOTE?"":`<td><input data-ucfg="pin:${u.id}" inputmode="numeric" maxlength="4" value="" placeholder="${u.pin?"•••• alterar":"sem PIN"}" style="width:110px" autocomplete="off"></td>`}<td class="num">${u.role==="admin"?"todas":n}</td><td class="muted" style="white-space:nowrap">${lastIn(u)?fmtDT(lastIn(u)):"—"}</td><td><input type="checkbox" data-ucfg="active:${u.id}" ${u.active?"checked":""} style="width:22px;height:22px;min-height:0"></td></tr>`;}).join("")}</tbody></table></div>
+    <div class="scroll"><table><thead><tr><th>Nome</th><th>E-mail</th><th>Telemóvel (WhatsApp)</th><th>Perfil</th>${REMOTE?"":"<th>PIN</th>"}${GAS?"<th>Password</th>":""}<th class="num">Lojas</th><th>Último acesso</th><th>Ativa</th></tr></thead><tbody>
+    ${S.users.map(u=>{const me=u.id===UI.user; const n=S.stores.filter(s=>s.sup===u.id&&s.active).length; return `<tr style="${u.active?"":"opacity:.7"}"><td><input data-ucfg="name:${u.id}" value="${esc(u.name)}" style="min-width:150px">${me?`<div class="muted" style="font-size:.75rem">eu</div>`:!u.active?`<div class="late-t" style="font-size:.75rem">aguarda ativação</div>`:""}</td><td><input data-ucfg="email:${u.id}" type="email" value="${esc(u.email)}" style="min-width:200px" ${REMOTE?"readonly":""}></td><td><input data-ucfg="phone:${u.id}" type="tel" value="${esc(u.phone||"")}" placeholder="+351 9…" style="min-width:150px"></td><td>${sel(`role:${u.id}`,u.role,[["sup","Supervisor"],["admin","Sede / bastidor"]])}</td>${REMOTE?"":`<td><input data-ucfg="pin:${u.id}" inputmode="numeric" maxlength="4" value="" placeholder="${u.pin?"•••• alterar":"sem PIN"}" style="width:110px" autocomplete="off"></td>`}${GAS?`<td><button class="btn sm ghost" data-adminreset="${u.id}" title="Envia uma password temporária por e-mail">Repor</button></td>`:""}<td class="num">${u.role==="admin"?"todas":n}</td><td class="muted" style="white-space:nowrap">${lastIn(u)?fmtDT(lastIn(u)):"—"}</td><td><input type="checkbox" data-ucfg="active:${u.id}" ${u.active?"checked":""} style="width:22px;height:22px;min-height:0"></td></tr>`;}).join("")}</tbody></table></div>
     <p class="muted">${REMOTE?"":"Para retirar o PIN a alguém, escreva 0000 e depois apague: fica sem PIN. "}Não é possível desativar a própria conta nem a última conta Sede.</p></section>`;
 }
 function Historico(){
@@ -984,9 +1086,11 @@ function importCSV(kind,text){
 let logQT;
 function bind(){
   root.onclick = e => {
-    const b = e.target.closest("[data-login],[data-act],[data-go],[data-store],[data-filter],[data-nova],[data-done],[data-prog],[data-reopen],[data-toggle],[data-star],[data-rmphoto],[data-acttab],[data-sedetab],[data-agenda],[data-view],[data-mapstore],[data-agview],[data-agshift],[data-agtoday],[data-agday],[data-newplan],[data-planstore],[data-editplan],[data-startvisit],[data-q],[data-train],[data-sendvia],[data-copy],[data-share],[data-logtype],[data-authmode]");
+    const b = e.target.closest("[data-login],[data-act],[data-go],[data-store],[data-filter],[data-nova],[data-done],[data-prog],[data-reopen],[data-toggle],[data-star],[data-rmphoto],[data-acttab],[data-sedetab],[data-agenda],[data-view],[data-mapstore],[data-agview],[data-agshift],[data-agtoday],[data-agday],[data-newplan],[data-planstore],[data-editplan],[data-startvisit],[data-q],[data-train],[data-sendvia],[data-copy],[data-share],[data-logtype],[data-authmode],[data-adminreset]");
     if(!b) return;
     const d=b.dataset;
+    if(d.adminreset){ const u=S.users.find(x=>String(x.id)===d.adminreset); if(!u||!GAS) return; b.disabled=true; gasCall("adminReset",{userId:u.id}).then(()=>toast(`Password temporária enviada por e-mail a ${u.name}`),e=>toast(authMsg(e))).finally(()=>{ b.disabled=false; }); return; }
+    if(d.act==="refresh"){ if(!GAS) return; if(gasQ.length){ UI.offline=false; gasFlush(); return; } b.disabled=true; gasCall("load").then(j=>{ gasApply(j); toast("Atualizado"); render(); },e=>{ if(e.code==="auth") return gasSignedOut(); UI.offline=true; toast(authMsg(e)); render(); }); return; }
     if(d.sendvia){ markSent(+d.visit,d.sendvia); setTimeout(render,300); return; } // deixa o link abrir o WhatsApp / e-mail
     if(d.copy){ const v=S.visits.find(x=>x.id===+d.copy); if(!v) return; const txt=reportText(v).replace(/\*/g,""); (navigator.clipboard?.writeText(txt)||Promise.reject()).then(()=>{markSent(v.id,"cópia");toast("Relatório copiado · cole no WhatsApp, e-mail ou Teams");render();},()=>{ const ta=document.createElement("textarea"); ta.value=txt; document.body.appendChild(ta); ta.select(); try{document.execCommand("copy");toast("Relatório copiado");}catch(x){toast("Não foi possível copiar");} ta.remove(); }); return; }
     if(d.share){ const v=S.visits.find(x=>x.id===+d.share); if(!v||!navigator.share) return; navigator.share({title:`Relatório de visita — ${S.stores.find(s=>s.id===v.store)?.name||""}`,text:reportText(v).replace(/\*/g,"")}).then(()=>{markSent(v.id,"partilha");render();}).catch(()=>{}); return; }
@@ -1028,7 +1132,9 @@ function bind(){
     if(d.toggle){ const id=+d.toggle, i=UI.draft.bad.indexOf(id); i>=0?UI.draft.bad.splice(i,1):UI.draft.bad.push(id); render(); return; }
     if(d.star){ UI.draft.rating = UI.draft.rating===+d.star? null : +d.star; render(); return; }
     if(d.rmphoto){ UI.draft.photos.splice(+d.rmphoto,1); render(); return; }
-    if(d.act==="logout"){ if(user()?.active) logE("Saiu da app","conta"); if(REMOTE){ sb.auth.signOut(); UI.auth=null; return; } UI.user=null; UI.draft=null; UI.signup=null; UI.loginSel=null; render(); return; }
+    if(d.act==="logout"){
+      if(GAS){ if(gasQ.length&&UI.offline){ toast(`Há ${gasQ.length} alteração(ões) por enviar: ligue-se à internet antes de sair.`); return; } const out=()=>{ gasCall("logout").catch(()=>{}).finally(gasSignedOut); }; if(gasQ.length||gasBusy){ toast("A guardar as últimas alterações…"); const w=setInterval(()=>{ if(!gasQ.length&&!gasBusy){ clearInterval(w); out(); } },300); gasFlush(); } else out(); return; }
+      if(user()?.active) logE("Saiu da app","conta"); if(SUPA){ sb.auth.signOut(); UI.auth=null; return; } UI.user=null; UI.draft=null; UI.signup=null; UI.loginSel=null; render(); return; }
     if(d.act==="reset"){ if(REMOTE) return; S=SEED(); UI.user=null; UI.signup=null; UI.loginSel=null; save(); toast("Dados de exemplo repostos"); render(); return; }
     if(d.act==="addphoto"){ $("#f-photo").click(); return; }
     if(d.act==="geo"){ UI.draft.geoState="asking"; render(); if(!navigator.geolocation){UI.draft.geoState="denied";render();return;} navigator.geolocation.getCurrentPosition(p=>{UI.draft.geo={lat:+p.coords.latitude.toFixed(5),lng:+p.coords.longitude.toFixed(5)};UI.draft.geoState="idle";render();},()=>{UI.draft.geoState="denied";render();},{enableHighAccuracy:true,timeout:10000}); return; }
@@ -1039,6 +1145,7 @@ function bind(){
   root.onsubmit = e => {
     e.preventDefault(); const f=e.target.dataset.form;
     if(f&&f.startsWith("auth-")){ authSubmit(f); return; }
+    if(f==="pw"){ pwSubmit(); return; }
     if(f==="pin"){ const u=S.users.find(x=>x.id===UI.loginSel); const val=$("#pin")?.value||""; if(u&&val===u.pin) doLogin(u.id); else { UI.formErr="PIN incorreto."; render(); setTimeout(()=>$("#pin")?.focus(),0); } return; }
     if(f==="signup"){ createAccount(!!UI.user&&isAdmin()); return; }
   };
@@ -1085,5 +1192,6 @@ function bind(){
     else if(t.id==="su-name") UI.signup.name=t.value; else if(t.id==="su-email") UI.signup.email=t.value; else if(t.id==="su-phone") UI.signup.phone=t.value; else if(t.id==="su-pin") UI.signup.pin=t.value.replace(/\D/g,"").slice(0,4); else if(t.id==="logQ"){ UI.logQ=t.value; clearTimeout(logQT); logQT=setTimeout(()=>{ render(); const el=$("#logQ"); if(el){ el.focus(); el.setSelectionRange(el.value.length,el.value.length); } },350); } };
 }
 render();
+if(GAS){ if(gasToken) startGas(false); else { UI.loading=false; render(); } }
 })();
 </script>

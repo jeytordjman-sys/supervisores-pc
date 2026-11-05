@@ -39,7 +39,7 @@ def load_config() -> configparser.SectionProxy:
     path = HERE / "config.ini"
     if not path.exists():
         sys.exit(f"config.ini introuvable ({path}). Copier config.example.ini -> config.ini et le remplir.")
-    cfg.read(path, encoding="utf-8")
+    cfg.read(path, encoding="utf-8-sig")  # tolère le BOM ajouté par le Bloc-notes Windows
     if "supabase" not in cfg:
         sys.exit("config.ini : section [supabase] manquante (url, service_role_key, dossier_csv).")
     return cfg["supabase"]
